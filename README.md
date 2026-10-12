@@ -11,6 +11,8 @@ backend/
   app/
   tests/
   pyproject.toml
+  uv.lock
+  .python-version
   Dockerfile
   .dockerignore
 .github/workflows/ci.yml
@@ -25,59 +27,51 @@ The internal `backend/app` module structure is not decided yet and is pending ba
 
 ## Prerequisites
 
-- Python 3.12 and pip for local development
-- Docker Engine and Docker Compose v2 for the containerized setup
+- [Install uv](https://docs.astral.sh/uv/getting-started/installation/). uv uses `backend/.python-version` to select or download Python 3.12.
+- Docker Engine and Docker Compose v2 for the containerized setup.
 
 ## Run locally from the repository root
 
-Create a root `.env` file and install the backend package and development tools:
+Create a root `.env` file and replace the placeholders. `DATABASE_URL` should use `localhost` for a local run.
 
 ```sh
 cp .env.example .env
-# Edit .env and replace every placeholder. DATABASE_URL should use localhost for local runs.
-python -m venv .venv
-. .venv/bin/activate
-python -m pip install -e "./backend[dev]"
+uv sync --project backend
+uv run --project backend uvicorn app.main:app --app-dir backend --reload
 ```
 
-Start the API and check its placeholder health route:
+Check the health route, tests, and lint from the root:
 
 ```sh
-python -m uvicorn app.main:app --app-dir backend --reload
 curl -f http://localhost:8000/health
-```
-
-Run tests and lint from the repository root:
-
-```sh
-python -m pytest backend/tests -q
-ruff check backend
-ruff format --check backend
+uv run --project backend pytest -q backend/tests
+uv run --project backend ruff check backend
+uv run --project backend ruff format --check backend
 ```
 
 ## Run locally from `backend/`
 
-The settings loader resolves `.env` from the repository root, even when commands run from `backend/`:
+The settings loader resolves `.env` from the repository root regardless of the current working directory.
 
 ```sh
 cd backend
-python -m pip install -e ".[dev]"
-python -m uvicorn app.main:app --reload
+uv sync
+uv run uvicorn app.main:app --reload
 ```
 
 Run tests and lint from `backend/`:
 
 ```sh
-pytest -q
-ruff check .
-ruff format --check .
+uv run pytest -q
+uv run ruff check .
+uv run ruff format --check .
 ```
 
-The current app requires `DATABASE_URL` at startup, but it does not connect to the database yet. A local PostgreSQL server is not needed for this foundation.
+The current app requires `DATABASE_URL` at startup, but does not connect to the database yet. A local PostgreSQL server is not needed for this foundation.
 
 ## Run with Docker Compose
 
-From the repository root, copy `.env.example` to `.env` and replace its placeholders. Compose builds from `backend/`, runs the app and the official PostgreSQL image, and binds the database port to localhost only. The app container receives its database URL from Compose.
+From the repository root, copy `.env.example` to `.env` and replace its placeholders. Compose builds from `backend/`, runs the app and PostgreSQL, binds the database port to localhost only, and checks the app health route.
 
 ```sh
 docker compose up --build -d
@@ -97,7 +91,9 @@ To add a setting, add a typed field to `Settings` in `backend/app/core/config.py
 
 These are task-authorized setup defaults, not final team decisions:
 
-- Python 3.12 and FastAPI
+- Python 3.12, selected through `backend/.python-version`, and FastAPI
+- uv for dependency management and execution; `backend/uv.lock` pins the resolved environment and is committed
+- Runtime dependency lower bounds live in `backend/pyproject.toml`; update exact resolutions with `uv lock` and review the lockfile
 - Docker and Docker Compose, with the app and PostgreSQL services
 - pytest for tests, and Ruff for linting and formatting
 - GitHub Actions for CI, based on the existing GitHub remote

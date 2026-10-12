@@ -33,6 +33,3 @@ Thumbs.db
 # AWS credentials and local configuration
 .aws/
 
-# local AI tool folders
-.codex/
-.agents/

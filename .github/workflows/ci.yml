@@ -13,6 +13,9 @@ jobs:
   quality:
     name: Lint and test
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -37,4 +40,4 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
       - name: Build app image
-        run: docker build --tag tawkeel-backend:ci .
+        run: docker build --tag tawkeel-backend:ci ./backend

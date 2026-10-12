@@ -2,42 +2,82 @@
 
 Tawkeel is an agentic AI workflow platform for Egyptian lawyers, legal consultants, and small firms. It aims to help lawyers act through controlled AI workflows, with legal search and retrieval as supporting infrastructure.
 
-This repository contains the backend foundation. `GET /health` is a setup placeholder, not a product API contract.
+This repository is the project monorepo. The backend currently provides a minimal API foundation; `GET /health` is a setup placeholder, not a product API contract.
+
+## Repository layout
+
+```text
+backend/
+  app/
+  tests/
+  pyproject.toml
+  Dockerfile
+  .dockerignore
+.github/workflows/ci.yml
+.env.example
+docker-compose.yml
+.gitignore
+README.md
+context.md
+```
+
+The internal `backend/app` module structure is not decided yet and is pending backend-owner confirmation. No frontend or feature modules have been created.
 
 ## Prerequisites
 
 - Python 3.12 and pip for local development
 - Docker Engine and Docker Compose v2 for the containerized setup
 
-## Run locally
+## Run locally from the repository root
 
-Create a local environment file and install the project with its development tools:
+Create a root `.env` file and install the backend package and development tools:
 
 ```sh
 cp .env.example .env
 # Edit .env and replace every placeholder. DATABASE_URL should use localhost for local runs.
 python -m venv .venv
 . .venv/bin/activate
-python -m pip install -e ".[dev]"
+python -m pip install -e "./backend[dev]"
 ```
 
-Start the API:
+Start the API and check its placeholder health route:
 
 ```sh
-uvicorn app.main:app --reload
-```
-
-Check the placeholder health route at `http://localhost:8000/health`:
-
-```sh
+python -m uvicorn app.main:app --app-dir backend --reload
 curl -f http://localhost:8000/health
+```
+
+Run tests and lint from the repository root:
+
+```sh
+python -m pytest backend/tests -q
+ruff check backend
+ruff format --check backend
+```
+
+## Run locally from `backend/`
+
+The settings loader resolves `.env` from the repository root, even when commands run from `backend/`:
+
+```sh
+cd backend
+python -m pip install -e ".[dev]"
+python -m uvicorn app.main:app --reload
+```
+
+Run tests and lint from `backend/`:
+
+```sh
+pytest -q
+ruff check .
+ruff format --check .
 ```
 
 The current app requires `DATABASE_URL` at startup, but it does not connect to the database yet. A local PostgreSQL server is not needed for this foundation.
 
 ## Run with Docker Compose
 
-Copy `.env.example` to `.env` and replace its placeholders. Compose runs the app and the official PostgreSQL image; its app container uses the Compose service hostname for the database URL. The database port is bound to localhost only.
+From the repository root, copy `.env.example` to `.env` and replace its placeholders. Compose builds from `backend/`, runs the app and the official PostgreSQL image, and binds the database port to localhost only. The app container receives its database URL from Compose.
 
 ```sh
 docker compose up --build -d
@@ -47,19 +87,11 @@ docker compose down
 
 PostgreSQL data is stored in the named `postgres_data` volume and remains after `docker compose down`. To delete that data, use `docker compose down --volumes`.
 
-## Tests and lint
-
-```sh
-pytest -q
-ruff check .
-ruff format --check .
-```
-
 ## Configuration
 
-Settings are read from environment variables. For local development, `pydantic-settings` also reads `.env`; this file is ignored by Git and is not copied into the Docker image. `DATABASE_URL` is required and the app exits at startup with a validation error if it is missing. `APP_ENV` and `LOG_LEVEL` have non-secret development defaults. `.env.example` contains placeholders only; replace them locally and never put real credentials in the example file.
+Settings are read from environment variables. For local development, `pydantic-settings` reads `.env` from the repository root, regardless of the current working directory. This file is ignored by Git and is not copied into the Docker image. `DATABASE_URL` is required and the app exits at startup with a validation error if it is missing. `APP_ENV` and `LOG_LEVEL` have non-secret development defaults. `.env.example` contains placeholders only; replace them locally and never put real credentials in the example file.
 
-To add a setting, add a typed field to `Settings` in `app/core/config.py`, document its placeholder in `.env.example`, and pass it to the app service in `docker-compose.yml` if the container needs it. Add validation and a config test when the new setting requires them.
+To add a setting, add a typed field to `Settings` in `backend/app/core/config.py`, document its placeholder in `.env.example`, and pass it to the app service in `docker-compose.yml` if the container needs it. Add validation and a config test when the new setting requires them.
 
 ## Defaults adopted in SCRUM-293 (pending backend-owner confirmation)
 

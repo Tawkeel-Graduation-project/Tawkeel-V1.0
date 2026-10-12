@@ -8,7 +8,7 @@ WORKDIR /app
 RUN groupadd --system --gid 10001 app \
     && useradd --system --uid 10001 --gid app --create-home app
 
-COPY pyproject.toml README.md ./
+COPY pyproject.toml ./
 COPY app ./app
 
 RUN python -m pip install --no-cache-dir .

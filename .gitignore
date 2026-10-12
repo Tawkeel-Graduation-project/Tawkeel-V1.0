@@ -29,3 +29,6 @@ htmlcov/
 *.swp
 .DS_Store
 Thumbs.db
+
+# AWS credentials and local configuration
+.aws/

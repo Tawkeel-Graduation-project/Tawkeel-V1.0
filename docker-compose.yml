@@ -18,7 +18,7 @@ services:
       retries: 5
 
   app:
-    build: .
+    build: ./backend
     environment:
       APP_ENV: ${APP_ENV:?Set APP_ENV in .env}
       LOG_LEVEL: ${LOG_LEVEL:?Set LOG_LEVEL in .env}

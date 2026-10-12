@@ -1,12 +1,13 @@
 """Health route tests."""
 
+from fastapi.testclient import TestClient
+
 from app.main import app
 
 
 def test_health_returns_ok() -> None:
-    route = next(
-        route for route in app.routes if getattr(route, "path", None) == "/health"
-    )
+    with TestClient(app) as client:
+        response = client.get("/health")
 
-    assert "GET" in route.methods
-    assert route.endpoint() == {"status": "ok"}
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}

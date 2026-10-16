@@ -141,7 +141,10 @@ def test_register_admin_role_rejected(client: TestClient) -> None:
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
-def test_register_short_password_rejected(client: TestClient) -> None:
+def test_register_short_password_rejected(
+    client: TestClient,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     password = secrets.token_urlsafe(18)
     payload = {
         "email": "short.pw@example.com",
@@ -153,6 +156,8 @@ def test_register_short_password_rejected(client: TestClient) -> None:
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
     assert payload["password"] not in response.text, "422 response includes password"
     assert "password" in response.text
+    output = capsys.readouterr()
+    assert payload["password"] not in output.out + output.err
 
 
 def test_auth_validation_errors_redact_passwords_and_keep_field_details(

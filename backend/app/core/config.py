@@ -24,6 +24,7 @@ class Settings(BaseSettings):
         env_file=REPOSITORY_ROOT / ".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        hide_input_in_errors=True,
     )
 
     @field_validator("jwt_secret_key")
@@ -32,8 +33,16 @@ class Settings(BaseSettings):
         secret = v.get_secret_value()
         if secret.startswith("replace_with"):
             raise ValueError("JWT_SECRET_KEY must not be a placeholder value")
-        if len(secret) < 32:
+        if len(secret.strip()) < 32:
             raise ValueError("JWT_SECRET_KEY must be at least 32 characters long")
+        if secret != secret.strip():
+            raise ValueError(
+                "JWT_SECRET_KEY must not contain leading or trailing whitespace"
+            )
+        if len(set(secret)) < 8:
+            raise ValueError(
+                "JWT_SECRET_KEY must contain at least 8 distinct characters"
+            )
         return v
 
     @property

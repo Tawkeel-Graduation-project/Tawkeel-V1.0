@@ -34,7 +34,9 @@ context.md
 
 ## Configure and run locally
 
-Copy the example environment file and replace its placeholders. Generate `JWT_SECRET_KEY` with the command below; the key must contain at least 32 characters, at least 8 distinct characters, and no leading or trailing whitespace. Placeholder values are rejected. `DATABASE_URL` must point to PostgreSQL. Compose reads the `POSTGRES_*` values and constructs the app's internal database URL using the `db` service name.
+Copy the example environment file and replace its placeholders. Set `APP_ENV` (usually `development`) and `LOG_LEVEL` (usually `INFO`), then choose `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_PORT`. Set `DATABASE_URL` to use the same database, user, password, and port, with host `localhost`. Use a URL-safe PostgreSQL password. Replace `JWT_SECRET_KEY` with a generated key; it must contain at least 32 characters, at least 8 distinct characters, and no leading or trailing whitespace. Placeholder values are rejected. `ACCESS_TOKEN_EXPIRE_MINUTES` can stay at its default of 30.
+
+For commands run on the host, `.env`'s `DATABASE_URL` uses `localhost` and the port in `POSTGRES_PORT`. When Compose starts the app container, it overrides that URL to use the `db` service hostname and PostgreSQL's internal port 5432.
 
 ```sh
 cp .env.example .env
@@ -47,10 +49,13 @@ Start PostgreSQL, apply migrations, optionally seed demo accounts, then run the 
 docker compose up -d db
 cd backend
 uv sync --locked
+set -a; . ../.env; set +a
 uv run alembic upgrade head
 uv run python -m scripts.seed
 uv run uvicorn app.main:app --reload
 ```
+
+Run `set -a; . ../.env; set +a` in the same shell after changing to `backend/`. It works in bash and zsh, exports the assignments, and ignores the comments and blank lines in `.env`. Alembic and the seed script read `DATABASE_URL` from the shell environment only; they do not load `.env` themselves.
 
 The seed command is for development only. It creates synthetic client, lawyer, and admin accounts with `.test` email addresses. Login accepts these reserved addresses; registration still validates email addresses with `EmailStr`.
 
@@ -76,11 +81,12 @@ Run Alembic from `backend/`, where `alembic.ini` and the application package are
 
 ```sh
 cd backend
+set -a; . ../.env; set +a
 uv run alembic upgrade head
 uv run python -m scripts.seed
 ```
 
-The seed script reads `DATABASE_URL`. It is idempotent for existing users and should only be used with a development database.
+The seed script is idempotent for existing users and should only be used with a development database. As in the setup steps above, load `.env` into the shell before running either command; Alembic and the seed script read `DATABASE_URL` from the shell environment only.
 
 ## Tests and lint
 

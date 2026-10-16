@@ -1,0 +1,65 @@
+"""Pydantic schemas for authentication and user payloads."""
+
+import uuid
+from datetime import datetime
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+
+
+class UserRegister(BaseModel):
+    """Payload for registering a new client or lawyer user."""
+
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+    full_name: str = Field(min_length=1, max_length=200)
+    role: Literal["client", "lawyer"]
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return v.strip().lower()
+        return v
+
+    @field_validator("full_name")
+    @classmethod
+    def validate_full_name(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("full_name must not be empty or whitespace only")
+        return stripped
+
+
+class UserLogin(BaseModel):
+    """Payload for user login."""
+
+    email: EmailStr
+    password: str = Field(min_length=1)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return v.strip().lower()
+        return v
+
+
+class TokenResponse(BaseModel):
+    """Response returned upon successful authentication."""
+
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+
+
+class UserResponse(BaseModel):
+    """Public representation of an authenticated user."""
+
+    id: uuid.UUID
+    email: EmailStr
+    full_name: str | None
+    role: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

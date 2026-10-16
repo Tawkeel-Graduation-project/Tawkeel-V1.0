@@ -34,7 +34,7 @@ class UserRegister(BaseModel):
 class UserLogin(BaseModel):
     """Payload for user login."""
 
-    email: EmailStr
+    email: str = Field(min_length=1, max_length=320)
     password: str = Field(min_length=1, repr=False)
 
     @field_validator("email", mode="before")
@@ -57,7 +57,7 @@ class UserResponse(BaseModel):
     """Public representation of an authenticated user."""
 
     id: uuid.UUID
-    email: EmailStr
+    email: str
     full_name: str | None
     role: str
     created_at: datetime

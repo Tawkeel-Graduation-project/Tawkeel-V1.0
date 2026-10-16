@@ -12,7 +12,7 @@ from sqlalchemy import create_engine, inspect, select
 from sqlalchemy.orm import Session
 
 from app.auth.schemas import UserLogin, UserRegister
-from app.auth.security import create_access_token
+from app.auth.security import create_access_token, hash_password
 from app.db.models import User
 from app.db.session import get_db
 from app.main import app
@@ -327,3 +327,33 @@ def test_auth_me_scenarios(client: TestClient, db_session: Session) -> None:
     )
     assert deleted_response.status_code == status.HTTP_401_UNAUTHORIZED
     assert deleted_response.headers.get("WWW-Authenticate") == "Bearer"
+
+
+def test_login_and_me_accept_reserved_test_domain_email(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    password = secrets.token_urlsafe(18)
+    email = "seeded.client@tawkeel.test"
+    user = User(
+        email=email,
+        full_name="Seeded Client",
+        role="client",
+        password_hash=hash_password(password),
+    )
+    db_session.add(user)
+    db_session.commit()
+
+    login_response = client.post(
+        "/auth/login",
+        json={"email": f" {email.upper()} ", "password": password},
+    )
+    assert login_response.status_code == status.HTTP_200_OK
+    token = login_response.json()["access_token"]
+
+    me_response = client.get(
+        "/auth/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert me_response.status_code == status.HTTP_200_OK
+    assert me_response.json()["email"] == email

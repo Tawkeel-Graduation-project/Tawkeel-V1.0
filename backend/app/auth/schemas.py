@@ -11,7 +11,7 @@ class UserRegister(BaseModel):
     """Payload for registering a new client or lawyer user."""
 
     email: EmailStr
-    password: str = Field(min_length=8, max_length=128)
+    password: str = Field(min_length=8, max_length=128, repr=False)
     full_name: str = Field(min_length=1, max_length=200)
     role: Literal["client", "lawyer"]
 
@@ -35,7 +35,7 @@ class UserLogin(BaseModel):
     """Payload for user login."""
 
     email: EmailStr
-    password: str = Field(min_length=1)
+    password: str = Field(min_length=1, repr=False)
 
     @field_validator("email", mode="before")
     @classmethod

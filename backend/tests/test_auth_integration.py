@@ -1,6 +1,7 @@
 """Integration tests for authentication endpoints using a real PostgreSQL database."""
 
 import os
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -10,6 +11,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect, select
 from sqlalchemy.orm import Session
 
+from app.auth.schemas import UserLogin, UserRegister
 from app.auth.security import create_access_token
 from app.db.models import User
 from app.db.session import get_db
@@ -140,14 +142,69 @@ def test_register_admin_role_rejected(client: TestClient) -> None:
 
 
 def test_register_short_password_rejected(client: TestClient) -> None:
+    password = secrets.token_urlsafe(18)
     payload = {
         "email": "short.pw@example.com",
-        "password": "short",
+        "password": password[:5],
         "full_name": "Short PW",
         "role": "client",
     }
     response = client.post("/auth/register", json=payload)
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert payload["password"] not in response.text, "422 response includes password"
+    assert "password" in response.text
+
+
+def test_auth_validation_errors_redact_passwords_and_keep_field_details(
+    client: TestClient,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    register_password = secrets.token_urlsafe(18)
+    register_response = client.post(
+        "/auth/register",
+        json={
+            "email": "missing.name@example.com",
+            "password": register_password,
+            "role": "client",
+        },
+    )
+    assert register_response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert register_password not in register_response.text, (
+        "register 422 leaked password"
+    )
+    assert "full_name" in register_response.text
+    assert "msg" in register_response.text
+
+    login_password = secrets.token_urlsafe(18)
+    login_response = client.post(
+        "/auth/login",
+        json={"password": login_password},
+    )
+    assert login_response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert login_password not in login_response.text, "login 422 leaked password"
+    assert "email" in login_response.text
+    assert "msg" in login_response.text
+
+    output = capsys.readouterr()
+    assert register_password not in output.out + output.err
+    assert login_password not in output.out + output.err
+
+
+def test_auth_payload_reprs_do_not_include_passwords() -> None:
+    register_password = secrets.token_urlsafe(18)
+    login_password = secrets.token_urlsafe(18)
+    register = UserRegister(
+        email="repr.register@example.com",
+        password=register_password,
+        full_name="Repr Register",
+        role="client",
+    )
+    login = UserLogin(email="repr.login@example.com", password=login_password)
+
+    assert register_password not in repr(register)
+    assert register_password not in str(register)
+    assert login_password not in repr(login)
+    assert login_password not in str(login)
 
 
 def test_login_success_and_cache_control_no_store(client: TestClient) -> None:

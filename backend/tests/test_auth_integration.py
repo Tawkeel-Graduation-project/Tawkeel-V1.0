@@ -231,6 +231,31 @@ def test_login_success_and_cache_control_no_store(client: TestClient) -> None:
     assert token_data["expires_in"] == 1800
 
 
+def test_lowercase_bearer_scheme_is_accepted(client: TestClient) -> None:
+    password = secrets.token_urlsafe(18)
+    register_response = client.post(
+        "/auth/register",
+        json={
+            "email": "lowercase.scheme@example.com",
+            "password": password,
+            "full_name": "Lowercase Bearer",
+            "role": "client",
+        },
+    )
+    assert register_response.status_code == status.HTTP_201_CREATED
+    login_response = client.post(
+        "/auth/login",
+        json={"email": "lowercase.scheme@example.com", "password": password},
+    )
+    assert login_response.status_code == status.HTTP_200_OK
+
+    response = client.get(
+        "/auth/me",
+        headers={"Authorization": f"bearer {login_response.json()['access_token']}"},
+    )
+    assert response.status_code == status.HTTP_200_OK
+
+
 def test_login_wrong_password_and_unknown_email_are_identical(
     client: TestClient,
 ) -> None:

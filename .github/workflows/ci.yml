@@ -13,6 +13,20 @@ jobs:
   quality:
     name: Lint and test
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: tawkeel_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     defaults:
       run:
         working-directory: backend
@@ -33,7 +47,13 @@ jobs:
         run: uv run ruff check .
       - name: Check formatting
         run: uv run ruff format --check .
+      - name: Run database migrations
+        env:
+          DATABASE_URL: postgresql://test_user:test_password@localhost:5432/tawkeel_test
+        run: uv run alembic upgrade head
       - name: Run tests
+        env:
+          TEST_DATABASE_URL: postgresql://test_user:test_password@localhost:5432/tawkeel_test
         run: uv run pytest -q
 
   docker-build:

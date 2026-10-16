@@ -75,7 +75,7 @@ def client(db_session):
     app.dependency_overrides.clear()
 
 
-def test_register_success_and_password_not_leaked(
+def test_register_success_response_omits_credentials(
     client: TestClient,
     db_session: Session,
 ) -> None:

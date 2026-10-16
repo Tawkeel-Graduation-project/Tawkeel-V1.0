@@ -2,17 +2,21 @@
 
 import uuid
 from datetime import datetime, timedelta, timezone
+from unittest.mock import Mock
 
 import jwt
 import pytest
+from fastapi import HTTPException
+from sqlalchemy.orm import Session
 
+from app.auth.schemas import UserLogin
 from app.auth.security import (
     create_access_token,
     decode_access_token,
     hash_password,
-    verify_dummy_password,
     verify_password,
 )
+from app.auth.service import authenticate_user
 
 
 def test_password_hash_and_verify_round_trip() -> None:
@@ -43,9 +47,23 @@ def test_password_verify_handles_malformed_hashes_safely() -> None:
     assert verify_password("password", "$argon2id$v=19$malformed") == (False, False)
 
 
-def test_verify_dummy_password_runs_without_error() -> None:
-    # Timing mitigation check executes without throwing errors
-    verify_dummy_password("any_attempted_password")
+def test_unknown_user_login_calls_dummy_password_verification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    password = "unknown-user-password"
+    db = Mock(spec=Session)
+    db.scalar.return_value = None
+    verify_dummy = Mock()
+    monkeypatch.setattr("app.auth.service.verify_dummy_password", verify_dummy)
+
+    with pytest.raises(HTTPException) as error:
+        authenticate_user(
+            db,
+            UserLogin(email="unknown@example.com", password=password),
+        )
+
+    assert error.value.status_code == 401
+    verify_dummy.assert_called_once_with(password)
 
 
 def test_token_create_and_decode_round_trip() -> None:
@@ -87,6 +105,22 @@ def test_token_with_none_algorithm_is_rejected() -> None:
 
     with pytest.raises(jwt.PyJWTError):
         decode_access_token(none_token)
+
+
+def test_decode_access_token_uses_exact_hs256_allow_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    decode_call: dict[str, object] = {}
+
+    def capture_decode(token: str, key: str, **kwargs: object) -> dict[str, str]:
+        decode_call.update(kwargs)
+        return {"sub": "test"}
+
+    monkeypatch.setattr("app.auth.security.jwt.decode", capture_decode)
+
+    decode_access_token("test-token")
+
+    assert decode_call["algorithms"] == ["HS256"]
 
 
 def test_tampered_token_signature_is_rejected() -> None:

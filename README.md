@@ -1,183 +1,199 @@
-# Tawkeel (توكيل) — Backend Foundation & Authentication
+# Tawkeel (توكيل)
 
-Tawkeel is an agentic AI workflow platform designed for Egyptian lawyers, legal consultants, and clients. This repository contains the backend service built with FastAPI, SQLAlchemy 2, and PostgreSQL (with pgvector).
+Tawkeel is an agentic AI workflow platform for Egyptian lawyers, legal consultants, and small firms. This monorepo currently contains the backend foundation, PostgreSQL schema and migrations, demo seed data, and register/login/current-user authentication.
 
----
+## Repository layout
 
-## Authentication Endpoints
-
-All authentication endpoints are registered under `/auth`. Endpoints execute synchronously on threadpools to ensure CPU-intensive Argon2 hashing does not block the async event loop.
-
-### 1. Register: `POST /auth/register`
-Creates a new user account with role `client` or `lawyer`. Self-registration with role `admin` is forbidden (returns `422 Unprocessable Content`).
-
-- **Email**: Normalized (trimmed and lowercased). Duplicate email returns `409 Conflict`.
-- **Password**: 8–128 characters. Hashed using Argon2id (`argon2-cffi`). Plaintext passwords and hashes are never exposed in responses or logs.
-
-#### Request Example
-```bash
-curl -X POST http://localhost:8000/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "client@example.com",
-    "password": "CorrectHorseBatteryStaple123!",
-    "full_name": "Ahmed Mansour",
-    "role": "client"
-  }'
+```text
+backend/
+  app/
+    auth/       # Authentication routes, schemas, security, and service logic
+    core/       # Environment-backed settings
+    db/         # SQLAlchemy models, engine, and session dependency
+  alembic/      # Database migration scripts
+  scripts/      # Development-only seed script
+  tests/        # Unit and PostgreSQL integration tests
+  pyproject.toml
+  uv.lock
+  .python-version
+  Dockerfile
+  .dockerignore
+.github/workflows/ci.yml
+.env.example
+docker-compose.yml
+.gitignore
+README.md
+context.md
 ```
 
-#### Response (`201 Created`)
-```json
-{
-  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-  "email": "client@example.com",
-  "full_name": "Ahmed Mansour",
-  "role": "client",
-  "created_at": "2026-10-16T21:00:00"
-}
-```
+## Prerequisites
 
----
+- Python 3.12, managed through `backend/.python-version` and uv.
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) for dependency and command management.
+- Docker Engine and Docker Compose v2 for PostgreSQL and the containerized app.
 
-### 2. Login: `POST /auth/login`
-Authenticates a user and issues a signed Bearer JWT access token. Includes `Cache-Control: no-store` header.
+## Configure and run locally
 
-- **Timing attack mitigation**: If the email does not exist in the database, the server computes a dummy Argon2 hash verification to equalize response timing.
-- **Uniform failure**: Both unknown email and incorrect password return an identical `401 Unauthorized` with `WWW-Authenticate: Bearer` and identical body.
+Copy the example environment file and replace its placeholders. Generate `JWT_SECRET_KEY` with the command below; the key must contain at least 32 characters, at least 8 distinct characters, and no leading or trailing whitespace. Placeholder values are rejected. `DATABASE_URL` must point to PostgreSQL. Compose reads the `POSTGRES_*` values and constructs the app's internal database URL using the `db` service name.
 
-#### Request Example
-```bash
-curl -X POST http://localhost:8000/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "client@example.com",
-    "password": "CorrectHorseBatteryStaple123!"
-  }'
-```
-
-#### Response (`200 OK`)
-```json
-{
-  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "token_type": "bearer",
-  "expires_in": 1800
-}
-```
-
----
-
-### 3. Current User: `GET /auth/me`
-Retrieves public profile information for the authenticated subject.
-
-- Requires `Authorization: Bearer <access_token>` header.
-- Compatible with Swagger UI Authorize button (`HTTPBearer`).
-- Missing, expired, malformed, or deleted-user tokens uniformly return `401 Unauthorized`.
-
-#### Request Example
-```bash
-curl -X GET http://localhost:8000/auth/me \
-  -H "Authorization: Bearer <access_token>"
-```
-
-#### Response (`200 OK`)
-```json
-{
-  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-  "email": "client@example.com",
-  "full_name": "Ahmed Mansour",
-  "role": "client",
-  "created_at": "2026-10-16T21:00:00"
-}
-```
-
----
-
-## Token Model & Security
-
-- **Algorithm**: `HS256` (code constant; algorithm tampering with `none` or asymmetric keys is rejected).
-- **Claims**:
-  - `sub`: User ID UUID string.
-  - `iat`: Issued-at UTC timestamp.
-  - `exp`: Expiration UTC timestamp.
-  - `jti`: Unique token identifier (UUID4 string).
-- **Stateless Authorization**: Roles are not embedded in tokens; the user record and role are queried from the database on every protected request.
-- **Password Hashing**: Argon2id via `argon2-cffi` using default library parameters. Re-hashing is automatically triggered and persisted if hash parameters are upgraded.
-
----
-
-## Configuration Variables
-
-Configured via environment variables or `.env` at the repository root:
-
-| Variable | Type | Default | Description |
-|---|---|---|---|
-| `DATABASE_URL` | String | *(Required)* | PostgreSQL connection URL (e.g., `postgresql://user:pass@localhost:5432/tawkeel`) |
-| `JWT_SECRET_KEY` | SecretStr | *(Required)* | HMAC signing key (min 32 chars; placeholders rejected) |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | Integer | `30` | Access token lifespan in minutes (1–1440) |
-| `APP_ENV` | String | `development` | Runtime environment name |
-| `LOG_LEVEL` | String | `INFO` | Application log verbosity |
-
-### Generating a Secure Secret Key
-Generate a cryptographic key using Python:
-```bash
+```sh
+cp .env.example .env
 python -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
----
+Start PostgreSQL, apply migrations, optionally seed demo accounts, then run the API from `backend/`:
 
-## Local Development & Testing
-
-### 1. Database Setup
-Start the local PostgreSQL container with pgvector:
-```bash
+```sh
 docker compose up -d db
-```
-
-Run database migrations:
-```bash
 cd backend
-export DATABASE_URL="postgresql://user:password@localhost:5432/tawkeel"
+uv sync --locked
 uv run alembic upgrade head
+uv run python -m scripts.seed
+uv run uvicorn app.main:app --reload
 ```
 
-### 2. Running Unit Tests
-Unit tests do not require a running database:
-```bash
+The seed command is for development only. It creates synthetic client, lawyer, and admin accounts with `.test` email addresses. Login accepts these reserved addresses; registration still validates email addresses with `EmailStr`.
+
+Check health from another terminal:
+
+```sh
+curl -f http://localhost:8000/health
+```
+
+To run the app in Compose instead of uvicorn, first apply migrations from `backend/` as above, stop the local uvicorn process, and start the app service from the repository root:
+
+```sh
+docker compose up --build -d app
+curl -f http://localhost:8000/health
+docker compose down
+```
+
+Compose stores PostgreSQL data in the named `postgres_data` volume. `docker compose down` preserves it; `docker compose down --volumes` deletes it.
+
+## Database migrations and seed data
+
+Run Alembic from `backend/`, where `alembic.ini` and the application package are located:
+
+```sh
 cd backend
-uv run pytest -v tests/test_config.py tests/test_db_session.py tests/test_auth_security.py
+uv run alembic upgrade head
+uv run python -m scripts.seed
 ```
 
-### 3. Running Integration Tests
-Integration tests run against a real database specified by `TEST_DATABASE_URL`. Each test executes inside an isolated database transaction that rolls back on completion:
-```bash
+The seed script reads `DATABASE_URL`. It is idempotent for existing users and should only be used with a development database.
+
+## Tests and lint
+
+Unit tests do not require PostgreSQL. Database integration tests require a migrated, disposable database selected by `TEST_DATABASE_URL`; use a separate database such as `tawkeel_test`, never a database containing development data.
+
+```sh
 cd backend
-export TEST_DATABASE_URL="postgresql://user:password@localhost:5432/tawkeel_test"
-uv run pytest -v tests/test_auth_integration.py
+uv run pytest -q
+uv run ruff check .
+uv run ruff format --check .
 ```
-*Note: If `TEST_DATABASE_URL` is unset, integration tests are skipped locally. In CI environments (`CI=true`), a missing `TEST_DATABASE_URL` causes an immediate test failure.*
 
----
+With a test database available, migrate it and set the test URL before running pytest:
 
-## Defaults Adopted in SCRUM-XXX (Pending Backend-Owner Confirmation)
+```sh
+docker compose exec db sh -c 'createdb -U "$POSTGRES_USER" tawkeel_test'
+cd backend
+set -a
+. ../.env
+set +a
+export TEST_DATABASE_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT}/tawkeel_test"
+export DATABASE_URL="$TEST_DATABASE_URL"
+uv run alembic upgrade head
+uv run pytest -q
+```
 
-1. **Authentication Stack**:
-   - JWT access tokens using `PyJWT`.
-   - Argon2id password hashing via `argon2-cffi`.
-   - Synchronous SQLAlchemy 2.0 with Psycopg 3 (`postgresql+psycopg://`).
-2. **Provisional Conventions**:
-   - Endpoint routing under `/auth/*` without API versioning prefix (`/v1`).
-   - Standard HTTP status codes (`201 Created`, `200 OK`, `401 Unauthorized`, `409 Conflict`, `422 Unprocessable Content`).
-   - Standard FastAPI error envelope: `{"detail": "..."}`.
-   - Bearer token authentication via standard `Authorization: Bearer <token>` header.
+When `TEST_DATABASE_URL` is unset, the integration module reports an explicit skip locally. In CI (`CI=true`), the same missing setting fails the test run.
 
----
+## Authentication API
 
-## Known Limitations & Out of Scope
+All authentication endpoints use the `/auth` prefix. Argon2 password hashing and synchronous SQLAlchemy work execute in FastAPI's threadpool.
 
-The current implementation provides core registration, login, and token verification. The following capabilities are explicitly out of scope for SCRUM-XXX:
+### Register: `POST /auth/register`
 
-- **Refresh Tokens & Revocation**: Tokens cannot be revoked before expiry; logout is handled client-side by discarding the token.
-- **Brute-Force & Rate Limiting**: Account lockout, exponential backoff, and IP-based rate limiting are deferred to subsequent security hardening tasks.
-- **Email Verification & Password Reset**: User accounts are active immediately without email confirmation or password recovery workflows.
-- **Lawyer Profiles**: Registration only creates the `User` record; `lawyer_profiles`, niches, and availability slots are managed in lawyer onboarding stories.
-- **Account Status**: The `users` table does not currently include an `is_active` or `email_verified` column.
+Creates a client or lawyer account. Self-registration as admin is rejected. Registration email uses `EmailStr`, is stripped and lowercased, and duplicate email returns `409 Conflict`. Passwords must be 8–128 characters. Passwords are excluded from schema representations and are never included in authentication validation responses.
+
+```sh
+curl -sS -X POST http://localhost:8000/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"client@example.com","password":"ExamplePassword123!","full_name":"Ahmed Mansour","role":"client"}'
+```
+
+Successful registration returns `201 Created` with the public user fields (`id`, `email`, `full_name`, `role`, `created_at`); password and password hash are omitted.
+
+### Login: `POST /auth/login`
+
+Login email is a lookup string: it is trimmed and lowercased, must be non-empty and no more than 320 characters, and is not subject to deliverability or reserved-domain checks. This lets seeded `.test` users sign in. Public response email is a string as well, so `/auth/me` can return those accounts. Registration retains strict `EmailStr` validation.
+
+Unknown email and incorrect password both return the same `401 Unauthorized` response. Unknown-user logins perform a dummy Argon2 verification. Successful login returns a signed JWT and `Cache-Control: no-store`.
+
+```sh
+curl -sS -o /dev/null -w '%{http_code}\n' -X POST http://localhost:8000/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"client@example.com","password":"ExamplePassword123!"}'
+```
+
+### Current user: `GET /auth/me`
+
+Requires an `Authorization: Bearer <access-token>` header. The HTTP scheme is case-insensitive, so lowercase `bearer` is accepted. Missing, expired, malformed, or invalid tokens return `401 Unauthorized`.
+
+```sh
+ACCESS_TOKEN="$(curl -sS -X POST http://localhost:8000/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"client@example.com","password":"ExamplePassword123!"}' \
+  | python -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')"
+curl -sS http://localhost:8000/auth/me -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+Authentication request validation errors return `422` with only each error's `loc`, `msg`, and `type`. Submitted values, including passwords, are omitted. This custom response applies only under `/auth/`; other paths retain FastAPI's default validation response.
+
+## Token and configuration
+
+- JWT algorithm: `HS256`; the decoder allow-list is exactly `HS256`, and required claims are `sub`, `iat`, and `exp`.
+- Claims also include a unique `jti`. User role is read from the database on each protected request rather than embedded in the token.
+- Access-token lifetime defaults to 30 minutes and is bounded from 1 to 1440 minutes.
+- Argon2 hashes use the library defaults and are re-hashed on login when parameters need upgrading.
+
+Settings are loaded from environment variables or the root `.env` file:
+
+| Variable | Default | Description |
+|---|---|---|
+| `DATABASE_URL` | Required | PostgreSQL URL used by the app and migration/seed scripts |
+| `JWT_SECRET_KEY` | Required | At least 32 characters, at least 8 distinct characters, no edge whitespace, and not a `replace_with...` placeholder |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | Token lifetime from 1 to 1440 minutes |
+| `APP_ENV` | `development` | Runtime environment name |
+| `LOG_LEVEL` | `INFO` | Application log verbosity |
+| `POSTGRES_DB` | Required by Compose | Database created by the PostgreSQL service |
+| `POSTGRES_USER` | Required by Compose | PostgreSQL user |
+| `POSTGRES_PASSWORD` | Required by Compose | PostgreSQL password |
+| `POSTGRES_PORT` | Required by Compose | Host port mapped to PostgreSQL |
+
+Generate a suitable signing key with:
+
+```sh
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+## Defaults adopted in SCRUM-293 (pending backend-owner confirmation)
+
+These are task-authorized setup defaults, not final team decisions:
+
+- Python 3.12 and FastAPI for the backend.
+- uv for dependency management and execution; `backend/uv.lock` is committed and pins the resolved environment.
+- Runtime dependency lower bounds live in `backend/pyproject.toml`; update exact resolutions with `uv lock` and review the lockfile.
+- Docker Compose runs the app and PostgreSQL services.
+- pytest for tests, Ruff for linting and formatting, and GitHub Actions for CI based on the existing GitHub remote.
+
+## Known limitations and intentionally excluded work
+
+The current authentication scope does not include refresh tokens or revocation, brute-force controls or rate limiting, email verification or password reset, or lawyer onboarding/profile management. The repository does not yet include frontend code or LLM/RAG integrations. These items are separate work; no additional API conventions or product scope are implied by this setup.
+
+The health route is a repository setup check, not a product API contract.
+
+## Auth task conventions and limitations (`<JIRA-KEY>`)
+
+The auth implementation uses JWT access tokens with PyJWT, Argon2id password hashing, synchronous SQLAlchemy with Psycopg 3, and routes under `/auth/*` without an API version prefix. It uses standard HTTP status codes and the standard `Authorization: Bearer <token>` header. Refresh tokens, brute-force limits, email verification, and password reset remain out of scope for `<JIRA-KEY>`.

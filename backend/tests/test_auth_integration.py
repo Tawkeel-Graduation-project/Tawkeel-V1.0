@@ -70,7 +70,7 @@ def db_session(test_engine):
 def client(db_session):
     """Provide a TestClient with get_db overridden to use the isolated test session."""
     app.dependency_overrides[get_db] = lambda: db_session
-    with TestClient(app) as test_client:
+    with TestClient(app, raise_server_exceptions=False) as test_client:
         yield test_client
     app.dependency_overrides.clear()
 
@@ -357,3 +357,65 @@ def test_login_and_me_accept_reserved_test_domain_email(
     )
     assert me_response.status_code == status.HTTP_200_OK
     assert me_response.json()["email"] == email
+
+
+def test_full_name_rejects_nul_and_accepts_unicode_names(
+    client: TestClient,
+) -> None:
+    def register(full_name: str, email: str) -> int:
+        response = client.post(
+            "/auth/register",
+            json={
+                "email": email,
+                "password": secrets.token_urlsafe(18),
+                "full_name": full_name,
+                "role": "client",
+            },
+        )
+        return response.status_code
+
+    assert register("A\u0000B", "nul.name@example.com") == 422
+    assert register("أحمد محمد", "arabic.name@example.com") == 201
+    assert register("Counselor 🧑‍⚖️", "emoji.name@example.com") == 201
+
+
+def test_nul_email_is_rejected_without_database_error(client: TestClient) -> None:
+    register_response = client.post(
+        "/auth/register",
+        json={
+            "email": "nul\u0000email@example.com",
+            "password": secrets.token_urlsafe(18),
+            "full_name": "Nul Email",
+            "role": "client",
+        },
+    )
+    login_response = client.post(
+        "/auth/login",
+        json={"email": "nul\u0000email@example.com", "password": "unknown"},
+    )
+
+    assert register_response.status_code == 422
+    assert login_response.status_code == 422
+
+
+def test_password_with_nul_is_processed_without_server_error(
+    client: TestClient,
+) -> None:
+    password = "Password\u0000WithNul123!"
+    email = "nul.password@example.com"
+    register_response = client.post(
+        "/auth/register",
+        json={
+            "email": email,
+            "password": password,
+            "full_name": "Nul Password",
+            "role": "client",
+        },
+    )
+    assert register_response.status_code == 201
+
+    login_response = client.post(
+        "/auth/login",
+        json={"email": email, "password": password},
+    )
+    assert login_response.status_code == 200

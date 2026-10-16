@@ -1,5 +1,6 @@
 """Pydantic schemas for authentication and user payloads."""
 
+import unicodedata
 import uuid
 from datetime import datetime
 from typing import Any, Literal
@@ -25,6 +26,8 @@ class UserRegister(BaseModel):
     @field_validator("full_name")
     @classmethod
     def validate_full_name(cls, v: str) -> str:
+        if any(unicodedata.category(character) == "Cc" for character in v):
+            raise ValueError("full_name must not contain control characters")
         stripped = v.strip()
         if not stripped:
             raise ValueError("full_name must not be empty or whitespace only")
@@ -41,7 +44,10 @@ class UserLogin(BaseModel):
     @classmethod
     def normalize_email(cls, v: Any) -> Any:
         if isinstance(v, str):
-            return v.strip().lower()
+            normalized = v.strip().lower()
+            if any(unicodedata.category(character) == "Cc" for character in normalized):
+                raise ValueError("email must not contain control characters")
+            return normalized
         return v
 
 

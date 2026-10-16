@@ -184,6 +184,10 @@ def test_auth_validation_errors_redact_passwords_and_keep_field_details(
     assert login_password not in login_response.text, "login 422 leaked password"
     assert "email" in login_response.text
     assert "msg" in login_response.text
+    for response in (register_response, login_response):
+        assert all(
+            set(error) == {"loc", "msg", "type"} for error in response.json()["detail"]
+        )
 
     output = capsys.readouterr()
     assert register_password not in output.out + output.err

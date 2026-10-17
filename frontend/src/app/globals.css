@@ -1,0 +1,154 @@
+@import "tailwindcss";
+
+/*
+ * Tawkeel design tokens.
+ * Colours are defined once here as CSS variables and exposed to Tailwind via
+ * @theme, so components use semantic classes (bg-surface, text-muted, ...)
+ * instead of raw palette values. Dark mode overrides the same variables.
+ */
+:root {
+  --background: #fdf8f3; /* warm cream */
+  --surface: #ffffff;
+  --surface-muted: #fbefe4;
+  --foreground: #1f1a17;
+  --muted: #6b625b;
+  --border: #f0e2d4;
+
+  /* Primary = Tawkeel orange. Solid fill is the darkest vivid orange that
+     still passes WCAG AA (4.6:1) with white text. */
+  --primary: #cc4a06;
+  --primary-hover: #a93c03;
+  --primary-soft: #ffedd5;
+  --primary-foreground: #ffffff;
+  /* Brighter orange for decoration only (icons, markers, gradients) — never body text on white. */
+  --vivid: #f97316;
+  --vivid-2: #fbbf24;
+
+  /* Secondary = deep teal, the complement that makes the orange pop. */
+  --secondary: #0f5b6b;
+  --secondary-soft: #dff3f5;
+
+  /* Sidebar */
+  --sidebar: #0f3d4a;
+  --sidebar-foreground: #f1f7f8;
+  --sidebar-muted: #a9c4cb;
+  --sidebar-border: #1d5361;
+  --sidebar-hover: #164b59;
+
+  --accent: #b45309; /* amber, for the demo switcher */
+  --accent-soft: #fef3c7;
+
+  --danger: #c0262d;
+  --danger-soft: #feeceb;
+  --warning: #a15c00;
+  --warning-soft: #fff1d6;
+  --success: #15803d;
+  --success-soft: #e3f6e9;
+  --info: #1d5fbf;
+  --info-soft: #e6effc;
+
+  --ring: #f97316;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #14110f;
+    --surface: #1d1916;
+    --surface-muted: #2a231e;
+    --foreground: #f4ece6;
+    --muted: #b3a69c;
+    --border: #3a3029;
+
+    --primary: #fb8a3c;
+    --primary-hover: #ffa364;
+    --primary-soft: #3d2312;
+    --primary-foreground: #1a0d04;
+    --vivid: #fb923c;
+    --vivid-2: #fcd34d;
+
+    --secondary: #5cc3d3;
+    --secondary-soft: #143338;
+
+    --sidebar: #0d2329;
+    --sidebar-foreground: #eef5f6;
+    --sidebar-muted: #8fb0b8;
+    --sidebar-border: #1a3a42;
+    --sidebar-hover: #143139;
+
+    --accent: #fbbf24;
+    --accent-soft: #3a2c0c;
+
+    --danger: #f97066;
+    --danger-soft: #3a1a17;
+    --warning: #f5b83d;
+    --warning-soft: #352a12;
+    --success: #4cc283;
+    --success-soft: #15301f;
+    --info: #6ea8f0;
+    --info-soft: #172a42;
+
+    --ring: #fb923c;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-vivid: var(--vivid);
+  --color-vivid-2: var(--vivid-2);
+  --color-secondary: var(--secondary);
+  --color-secondary-soft: var(--secondary-soft);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-muted: var(--sidebar-muted);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-hover: var(--sidebar-hover);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-ring: var(--ring);
+
+  --font-sans: "IBM Plex Sans Arabic", system-ui, "Segoe UI", Tahoma, sans-serif;
+}
+
+html {
+  color-scheme: light dark;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  /* Arabic needs a little more line height than Latin defaults. */
+  line-height: 1.7;
+}
+
+/* Consistent keyboard focus ring everywhere. */
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

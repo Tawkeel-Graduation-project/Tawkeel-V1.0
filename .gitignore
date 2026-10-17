@@ -7,8 +7,11 @@ dist/
 *.egg-info/
 
 # Virtual environments
+.venv
 .venv/
+venv
 venv/
+env
 env/
 
 # Environment files and secrets
@@ -37,3 +40,14 @@ Thumbs.db
 # local AI tool folders
 .codex/
 .agents/
+.claude/
+Claude outputs/
+
+# Office temporary files
+~$*
+
+# Node / Frontend build and dependencies
+node_modules/
+.next/
+out/
+*.tsbuildinfo

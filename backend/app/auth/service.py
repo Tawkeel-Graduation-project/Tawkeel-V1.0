@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.auth.email import normalize_email
 from app.auth.schemas import UserLogin, UserRegister
 from app.auth.security import hash_password, verify_dummy_password, verify_password
 from app.db.models import User
@@ -15,7 +16,8 @@ def register_user(db: Session, data: UserRegister) -> User:
 
     Catches unique constraints to handle duplicate email race conditions.
     """
-    existing_user = db.scalar(select(User).where(User.email == data.email))
+    email = normalize_email(str(data.email))
+    existing_user = db.scalar(select(User).where(User.email == email))
     if existing_user is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -23,7 +25,7 @@ def register_user(db: Session, data: UserRegister) -> User:
         )
 
     user = User(
-        email=data.email,
+        email=email,
         full_name=data.full_name,
         role=data.role,
         password_hash=hash_password(data.password),
@@ -46,7 +48,8 @@ def authenticate_user(db: Session, data: UserLogin) -> User:
 
     Equalizes timing on non-existent users and persists password rehash when required.
     """
-    user = db.scalar(select(User).where(User.email == data.email))
+    email = normalize_email(data.email, allow_special_use=True)
+    user = db.scalar(select(User).where(User.email == email))
     if user is None:
         verify_dummy_password(data.password)
         raise HTTPException(

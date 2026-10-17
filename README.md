@@ -121,7 +121,7 @@ All authentication endpoints use the `/auth` prefix. Argon2 password hashing and
 
 ### Register: `POST /auth/register`
 
-Creates a client or lawyer account. Self-registration as admin is rejected. Registration email uses `EmailStr`, is stripped and lowercased, and duplicate email returns `409 Conflict`. Passwords must be 8–128 characters. Passwords are excluded from schema representations and are never included in authentication validation responses.
+Creates a client or lawyer account. Self-registration as admin is rejected. Registration validates email with `EmailStr`, trims surrounding whitespace, lowercases it, and canonicalizes internationalized domains; equivalent Unicode and punycode forms identify the same address. Invalid and reserved-domain registration addresses remain rejected. Duplicate canonical emails return `409 Conflict`. Passwords must be 8–128 characters. Passwords are excluded from schema representations and are never included in authentication validation responses.
 
 ```sh
 curl -sS -X POST http://localhost:8000/auth/register \
@@ -133,7 +133,9 @@ Successful registration returns `201 Created` with the public user fields (`id`,
 
 ### Login: `POST /auth/login`
 
-Login email is a lookup string: it is trimmed and lowercased, must be non-empty and no more than 320 characters, and is not subject to deliverability or reserved-domain checks. This lets seeded `.test` users sign in. Public response email is a string as well, so `/auth/me` can return those accounts. Registration retains strict `EmailStr` validation.
+Login uses the same canonical email normalization as registration and the limiter key. It trims surrounding whitespace, lowercases the address, and canonicalizes internationalized domains such as Unicode and punycode forms. It must be non-empty and no more than 320 characters. Login does not apply deliverability or special-use domain rejection, so seeded `.test` users can sign in. Registration retains strict `EmailStr` validation.
+
+Login passwords must contain 1–128 characters. A longer password returns `422` before limiter checks, database queries, or Argon2 verification, and authentication validation errors do not include submitted values. These `422` validation responses do not count as login failures. The API does not enforce a total request-body size limit; deployments should set an appropriate limit at their HTTP server or proxy.
 
 Unknown email and incorrect password both return the same `401 Unauthorized` response. Unknown-user logins perform a dummy Argon2 verification. Successful login returns a signed JWT and `Cache-Control: no-store`.
 
@@ -171,6 +173,10 @@ Settings are loaded from environment variables or the root `.env` file:
 | `DATABASE_URL` | Required | PostgreSQL URL used by the app and migration/seed scripts |
 | `JWT_SECRET_KEY` | Required | At least 32 characters, at least 8 distinct characters, no edge whitespace, and not a `replace_with...` placeholder |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | Token lifetime from 1 to 1440 minutes |
+| `LOGIN_RATE_LIMIT_IP_MAX_FAILURES` | `20` | Failed logins per client IP in the sliding window, from 1 to 100 |
+| `LOGIN_RATE_LIMIT_EMAIL_MAX_FAILURES` | `5` | Failed logins per normalized email in the sliding window, from 1 to 100 |
+| `LOGIN_RATE_LIMIT_WINDOW_SECONDS` | `900` | Sliding-window duration, from 1 to 86400 seconds |
+| `LOGIN_RATE_LIMIT_MAX_TRACKED_KEYS` | `10000` | Maximum in-memory IP and email keys per process; bounded from 1 to 10000 |
 | `APP_ENV` | `development` | Runtime environment name |
 | `LOG_LEVEL` | `INFO` | Application log verbosity |
 | `POSTGRES_DB` | Required by Compose | Database created by the PostgreSQL service |
@@ -194,12 +200,28 @@ These are task-authorized setup defaults, not final team decisions:
 - Docker Compose runs the app and PostgreSQL services.
 - pytest for tests, Ruff for linting and formatting, and GitHub Actions for CI based on the existing GitHub remote.
 
+## Login brute-force protection
+
+Login atomically checks the request's direct client IP and canonical email key and reserves one attempt against both before accessing the database or running Argon2 verification. Reservations count toward both limits while authentication is in progress. Incorrect-password and unknown-email responses, and exceptions after reservation, keep the reservation as a failure. A successful login releases only its own IP reservation and clears completed failures for that email; other in-flight reservations remain counted. Registration is not rate limited. Invalid request bodies, including passwords longer than 128 characters, are rejected with `422` before the limiter and do not count as failures.
+
+A blocked request returns the same `429` body for either key, with `Retry-After` set to the longest remaining wait and `Cache-Control: no-store`; blocked attempts do not reserve or extend the window. Concurrent in-flight attempts count toward the limits, so more simultaneous login attempts from one IP than its configured IP limit can receive `429` even when some credentials are valid. This can affect users behind a shared NAT or proxy.
+
+The defaults are 20 failures per IP, 5 per email, and a 900-second sliding window. The four `LOGIN_RATE_LIMIT_*` settings in the table above can override these defaults. The in-memory store is thread-safe and bounded to 10,000 keys, retaining at most 100 failure or in-flight reservation timestamps per key. When full, it evicts the least recently active key that is not currently blocked; active blocks are preserved while any unblocked or expired key can be evicted. If every tracked key is actively blocked, new keys fail closed with `429` until an existing block expires. Restarting the app clears counters. The Docker image currently starts one Uvicorn worker; each additional worker or replica would have separate counters, so this protection is process-local rather than global.
+
+The limiter uses `request.client.host` and intentionally ignores forwarded IP headers. Behind a reverse proxy, users may share the proxy's address and therefore the IP limit. Per-email blocking can also be abused to temporarily deny a victim's login. Recommendations for a public deployment include trusted proxy configuration, progressive delays, CAPTCHA, combined per-IP-and-email keys, and alerts for repeated blocks; none are implemented here.
+
+## Auth review status
+
+The hashing and token-expiry review findings were addressed and independently re-verified in earlier passes; this task adds brute-force limiting. Passwords use Argon2id with the library defaults, login checks for re-hashing, unknown accounts receive a dummy verification, and login passwords are capped at 128 characters. `test_password_hash_and_verify_round_trip` and `test_unknown_user_login_calls_dummy_password_verification` in `backend/tests/test_auth_security.py` cover hashing and dummy verification. The earlier review verified re-hashing on login; the current suite has no dedicated re-hash regression test. The 128-character cap is defined in `backend/app/auth/schemas.py`.
+
+JWT decoding pins `HS256` and requires `sub`, `iat`, and `exp`. Injected-time expiry, algorithm allow-list, and missing-exp tests are in `backend/tests/test_auth_security.py`. `/auth/` validation errors redact submitted values and retain field details; `test_auth_validation_errors_redact_passwords_and_keep_field_details` in `backend/tests/test_auth_integration.py` covers that behavior. Limiter unit and PostgreSQL integration tests are in `backend/tests/test_rate_limit.py` and `backend/tests/test_auth_integration.py`. These checks do not amount to an external security audit.
+
 ## Known limitations and intentionally excluded work
 
-The current authentication scope does not include refresh tokens or revocation, brute-force controls or rate limiting, email verification or password reset, or lawyer onboarding/profile management. The repository does not yet include frontend code or LLM/RAG integrations. These items are separate work; no additional API conventions or product scope are implied by this setup.
+The current authentication scope does not include refresh tokens or revocation, email verification or password reset, or lawyer onboarding/profile management. The repository does not yet include frontend code or LLM/RAG integrations. These items are separate work; no additional API conventions or product scope are implied by this setup.
 
 The health route is a repository setup check, not a product API contract.
 
 ## Auth task conventions and limitations (`<JIRA-KEY>`)
 
-The auth implementation uses JWT access tokens with PyJWT, Argon2id password hashing, synchronous SQLAlchemy with Psycopg 3, and routes under `/auth/*` without an API version prefix. It uses standard HTTP status codes and the standard `Authorization: Bearer <token>` header. Refresh tokens, brute-force limits, email verification, and password reset remain out of scope for `<JIRA-KEY>`.
+The auth implementation uses JWT access tokens with PyJWT, Argon2id password hashing, synchronous SQLAlchemy with Psycopg 3, and routes under `/auth/*` without an API version prefix. It uses standard HTTP status codes and the standard `Authorization: Bearer <token>` header. Refresh tokens, email verification, and password reset remain out of scope for `<JIRA-KEY>`.

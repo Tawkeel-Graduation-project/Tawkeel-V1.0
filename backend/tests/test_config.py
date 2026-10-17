@@ -167,6 +167,60 @@ def test_access_token_expire_minutes_bounds(monkeypatch: pytest.MonkeyPatch) -> 
     assert settings.access_token_expire_minutes == 60
 
 
+def test_login_rate_limit_defaults_and_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
+    monkeypatch.setenv("JWT_SECRET_KEY", _valid_secret())
+    for key in (
+        "LOGIN_RATE_LIMIT_IP_MAX_FAILURES",
+        "LOGIN_RATE_LIMIT_EMAIL_MAX_FAILURES",
+        "LOGIN_RATE_LIMIT_WINDOW_SECONDS",
+        "LOGIN_RATE_LIMIT_MAX_TRACKED_KEYS",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    settings = Settings(_env_file=None)
+    assert settings.login_rate_limit_ip_max_failures == 20
+    assert settings.login_rate_limit_email_max_failures == 5
+    assert settings.login_rate_limit_window_seconds == 900
+    assert settings.login_rate_limit_max_tracked_keys == 10_000
+
+    monkeypatch.setenv("LOGIN_RATE_LIMIT_EMAIL_MAX_FAILURES", "0")
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
+    monkeypatch.setenv("LOGIN_RATE_LIMIT_EMAIL_MAX_FAILURES", "101")
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
+    monkeypatch.setenv("LOGIN_RATE_LIMIT_EMAIL_MAX_FAILURES", "7")
+    configured = Settings(_env_file=None)
+    assert configured.login_rate_limit_email_max_failures == 7
+
+
+@pytest.mark.parametrize(
+    ("setting", "invalid_value"),
+    [
+        ("LOGIN_RATE_LIMIT_IP_MAX_FAILURES", "0"),
+        ("LOGIN_RATE_LIMIT_IP_MAX_FAILURES", "101"),
+        ("LOGIN_RATE_LIMIT_EMAIL_MAX_FAILURES", "0"),
+        ("LOGIN_RATE_LIMIT_EMAIL_MAX_FAILURES", "101"),
+        ("LOGIN_RATE_LIMIT_WINDOW_SECONDS", "0"),
+        ("LOGIN_RATE_LIMIT_WINDOW_SECONDS", "86401"),
+        ("LOGIN_RATE_LIMIT_MAX_TRACKED_KEYS", "0"),
+        ("LOGIN_RATE_LIMIT_MAX_TRACKED_KEYS", "10001"),
+    ],
+)
+def test_login_rate_limit_setting_rejects_out_of_bounds_values(
+    monkeypatch: pytest.MonkeyPatch,
+    setting: str,
+    invalid_value: str,
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
+    monkeypatch.setenv("JWT_SECRET_KEY", _valid_secret())
+    monkeypatch.setenv(setting, invalid_value)
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
+
+
 def test_sqlalchemy_database_url_conversion(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/tawkeel")
     monkeypatch.setenv("JWT_SECRET_KEY", _valid_secret())

@@ -7,12 +7,16 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
+from app.auth.email import normalize_email
+
+MAX_PASSWORD_LENGTH = 128
+
 
 class UserRegister(BaseModel):
     """Payload for registering a new client or lawyer user."""
 
     email: EmailStr
-    password: str = Field(min_length=8, max_length=128, repr=False)
+    password: str = Field(min_length=8, max_length=MAX_PASSWORD_LENGTH, repr=False)
     full_name: str = Field(min_length=1, max_length=200)
     role: Literal["client", "lawyer"]
 
@@ -20,7 +24,7 @@ class UserRegister(BaseModel):
     @classmethod
     def normalize_email(cls, v: Any) -> Any:
         if isinstance(v, str):
-            return v.strip().lower()
+            return normalize_email(v)
         return v
 
     @field_validator("full_name")
@@ -38,13 +42,13 @@ class UserLogin(BaseModel):
     """Payload for user login."""
 
     email: str = Field(min_length=1, max_length=320)
-    password: str = Field(min_length=1, repr=False)
+    password: str = Field(min_length=1, max_length=MAX_PASSWORD_LENGTH, repr=False)
 
     @field_validator("email", mode="before")
     @classmethod
     def normalize_email(cls, v: Any) -> Any:
         if isinstance(v, str):
-            normalized = v.strip().lower()
+            normalized = normalize_email(v, allow_special_use=True)
             if any(unicodedata.category(character) == "Cc" for character in normalized):
                 raise ValueError("email must not contain control characters")
             return normalized

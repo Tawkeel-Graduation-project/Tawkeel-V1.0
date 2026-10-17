@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     database_url: str
     jwt_secret_key: SecretStr
     access_token_expire_minutes: int = Field(default=30, ge=1, le=1440)
+    login_rate_limit_ip_max_failures: int = Field(default=20, ge=1, le=100)
+    login_rate_limit_email_max_failures: int = Field(default=5, ge=1, le=100)
+    login_rate_limit_window_seconds: int = Field(default=900, ge=1, le=86400)
+    login_rate_limit_max_tracked_keys: int = Field(default=10_000, ge=1, le=10_000)
 
     model_config = SettingsConfigDict(
         env_file=REPOSITORY_ROOT / ".env",

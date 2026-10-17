@@ -2,15 +2,17 @@
 
 import os
 import secrets
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, inspect, select
+from sqlalchemy import create_engine, event, inspect, select
 from sqlalchemy.orm import Session
 
+from app.auth.rate_limit import InMemoryRateLimiter, get_login_rate_limiter
 from app.auth.schemas import UserLogin, UserRegister
 from app.auth.security import create_access_token, hash_password
 from app.db.models import User
@@ -70,9 +72,289 @@ def db_session(test_engine):
 def client(db_session):
     """Provide a TestClient with get_db overridden to use the isolated test session."""
     app.dependency_overrides[get_db] = lambda: db_session
+    app.dependency_overrides[get_login_rate_limiter] = lambda: InMemoryRateLimiter()
     with TestClient(app, raise_server_exceptions=False) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+
+
+def test_login_rate_limit_blocks_before_authentication_or_database(
+    client: TestClient, test_engine, monkeypatch
+) -> None:
+    limiter = InMemoryRateLimiter(max_failures_per_email=1, max_failures_per_ip=20)
+    app.dependency_overrides[get_login_rate_limiter] = lambda: limiter
+    first = client.post(
+        "/auth/login", json={"email": "blocked@example.com", "password": "wrong"}
+    )
+    assert first.status_code == 401
+
+    statements: list[str] = []
+
+    def record_statement(_conn, _cursor, statement, *_args):
+        statements.append(statement)
+
+    event.listen(test_engine, "before_cursor_execute", record_statement)
+    verifier_calls: list[str] = []
+    monkeypatch.setattr(
+        "app.auth.service.verify_password",
+        lambda *_args: verifier_calls.append("password"),
+    )
+    monkeypatch.setattr(
+        "app.auth.service.verify_dummy_password",
+        lambda *_args: verifier_calls.append("dummy"),
+    )
+    try:
+        blocked = client.post(
+            "/auth/login",
+            json={"email": "blocked@example.com", "password": "correct"},
+        )
+    finally:
+        event.remove(test_engine, "before_cursor_execute", record_statement)
+    assert blocked.status_code == 429
+    assert blocked.headers.get("Cache-Control") == "no-store"
+    assert int(blocked.headers["Retry-After"]) >= 1
+    assert statements == []
+    assert verifier_calls == []
+
+
+def test_exception_after_reservation_is_counted_as_failure(
+    client: TestClient, monkeypatch
+) -> None:
+    limiter = InMemoryRateLimiter(max_failures_per_email=1, max_failures_per_ip=10)
+    app.dependency_overrides[get_login_rate_limiter] = lambda: limiter
+
+    def fail_after_reservation(_db, _payload):
+        raise RuntimeError("internal failure")
+
+    monkeypatch.setattr("app.auth.router.authenticate_user", fail_after_reservation)
+    payload = {"email": "exception.limit@example.com", "password": "wrong"}
+    first = client.post("/auth/login", json=payload)
+    assert first.status_code == 500
+    assert limiter._entries["ip:testclient"].reservations == {}
+    assert len(limiter._entries["ip:testclient"].failures) == 1
+    assert limiter._entries["email:exception.limit@example.com"].reservations == {}
+    assert len(limiter._entries["email:exception.limit@example.com"].failures) == 1
+    second = client.post("/auth/login", json=payload)
+
+    assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+
+def test_existing_and_unknown_email_receive_identical_block_response(
+    client: TestClient, db_session: Session
+) -> None:
+    limiter = InMemoryRateLimiter(max_failures_per_email=1, max_failures_per_ip=20)
+    app.dependency_overrides[get_login_rate_limiter] = lambda: limiter
+    password = "CorrectPassword123!"
+    client.post(
+        "/auth/register",
+        json={
+            "email": "known.limit@example.com",
+            "password": password,
+            "full_name": "Known",
+            "role": "client",
+        },
+    )
+    client.post(
+        "/auth/login",
+        json={"email": "known.limit@example.com", "password": "wrong"},
+    )
+    client.post(
+        "/auth/login",
+        json={"email": "missing.limit@example.com", "password": "wrong"},
+    )
+    known = client.post(
+        "/auth/login",
+        json={"email": "known.limit@example.com", "password": password},
+    )
+    unknown = client.post(
+        "/auth/login",
+        json={"email": "missing.limit@example.com", "password": "wrong"},
+    )
+    assert known.status_code == unknown.status_code == 429
+    assert known.content == unknown.content
+    assert known.headers["Retry-After"] == unknown.headers["Retry-After"]
+    assert (
+        known.headers["Cache-Control"] == unknown.headers["Cache-Control"] == "no-store"
+    )
+
+
+def test_another_email_can_login_while_first_email_is_blocked(
+    client: TestClient,
+) -> None:
+    limiter = InMemoryRateLimiter(max_failures_per_email=1, max_failures_per_ip=20)
+    app.dependency_overrides[get_login_rate_limiter] = lambda: limiter
+    password = "CorrectPassword123!"
+    for email in ("blocked.alone@example.com", "allowed.alone@example.com"):
+        assert (
+            client.post(
+                "/auth/register",
+                json={
+                    "email": email,
+                    "password": password,
+                    "full_name": "Independent Email",
+                    "role": "client",
+                },
+            ).status_code
+            == 201
+        )
+    assert (
+        client.post(
+            "/auth/login",
+            json={"email": "blocked.alone@example.com", "password": "wrong"},
+        ).status_code
+        == 401
+    )
+    blocked = client.post(
+        "/auth/login",
+        json={"email": "blocked.alone@example.com", "password": password},
+    )
+    allowed = client.post(
+        "/auth/login",
+        json={"email": "allowed.alone@example.com", "password": password},
+    )
+    assert blocked.status_code == 429
+    assert allowed.status_code == 200
+
+
+def test_success_resets_email_but_keeps_ip_failures(client: TestClient) -> None:
+    limiter = InMemoryRateLimiter(max_failures_per_email=2, max_failures_per_ip=3)
+    app.dependency_overrides[get_login_rate_limiter] = lambda: limiter
+    email = "reset.limit@example.com"
+    password = "CorrectPassword123!"
+    assert (
+        client.post(
+            "/auth/register",
+            json={
+                "email": email,
+                "password": password,
+                "full_name": "Reset",
+                "role": "client",
+            },
+        ).status_code
+        == 201
+    )
+    bad = {"email": email, "password": "wrong"}
+    assert client.post("/auth/login", json=bad).status_code == 401
+    assert (
+        client.post(
+            "/auth/login", json={"email": email, "password": password}
+        ).status_code
+        == 200
+    )
+    assert client.post("/auth/login", json=bad).status_code == 401
+    assert client.post("/auth/login", json=bad).status_code == 401
+    assert client.post("/auth/login", json=bad).status_code == 429
+
+
+def test_successful_login_does_not_clear_ip_counter(client: TestClient) -> None:
+    limiter = InMemoryRateLimiter(max_failures_per_email=10, max_failures_per_ip=2)
+    app.dependency_overrides[get_login_rate_limiter] = lambda: limiter
+    password = "CorrectPassword123!"
+    for email in (
+        "first.ip@example.com",
+        "second.ip@example.com",
+        "third.ip@example.com",
+    ):
+        assert (
+            client.post(
+                "/auth/register",
+                json={
+                    "email": email,
+                    "password": password,
+                    "full_name": "IP Counter",
+                    "role": "client",
+                },
+            ).status_code
+            == 201
+        )
+    assert (
+        client.post(
+            "/auth/login",
+            json={"email": "first.ip@example.com", "password": "wrong"},
+        ).status_code
+        == 401
+    )
+    assert (
+        client.post(
+            "/auth/login",
+            json={"email": "second.ip@example.com", "password": password},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            "/auth/login",
+            json={"email": "third.ip@example.com", "password": "wrong"},
+        ).status_code
+        == 401
+    )
+    blocked = client.post(
+        "/auth/login",
+        json={"email": "first.ip@example.com", "password": password},
+    )
+    assert blocked.status_code == 429
+
+
+def test_missing_request_client_uses_shared_unknown_ip_key(
+    client: TestClient, monkeypatch
+) -> None:
+    from starlette.requests import Request
+
+    limiter = InMemoryRateLimiter(max_failures_per_email=10, max_failures_per_ip=1)
+    app.dependency_overrides[get_login_rate_limiter] = lambda: limiter
+    monkeypatch.setattr(Request, "client", property(lambda _request: None))
+    first = client.post(
+        "/auth/login",
+        json={"email": "unknown.ip.one@example.com", "password": "wrong"},
+    )
+    second = client.post(
+        "/auth/login",
+        json={"email": "unknown.ip.two@example.com", "password": "wrong"},
+    )
+    assert first.status_code == 401
+    assert second.status_code == 429
+
+
+def test_ip_limit_spans_emails_and_forwarded_headers_are_ignored(
+    client: TestClient,
+) -> None:
+    limiter = InMemoryRateLimiter(max_failures_per_email=10, max_failures_per_ip=2)
+    app.dependency_overrides[get_login_rate_limiter] = lambda: limiter
+    for email, forwarded in (
+        ("one.ip@example.com", "198.51.100.1"),
+        ("two.ip@example.com", "198.51.100.2"),
+    ):
+        response = client.post(
+            "/auth/login",
+            headers={"X-Forwarded-For": forwarded},
+            json={"email": email, "password": "wrong"},
+        )
+        assert response.status_code == 401
+    blocked = client.post(
+        "/auth/login",
+        headers={"X-Forwarded-For": "203.0.113.8"},
+        json={"email": "third.ip@example.com", "password": "wrong"},
+    )
+    assert blocked.status_code == 429
+
+
+def test_blocked_attempt_does_not_extend_the_window(client: TestClient) -> None:
+    now = [100.0]
+    limiter = InMemoryRateLimiter(
+        max_failures_per_email=1, window_seconds=10, clock=lambda: now[0]
+    )
+    app.dependency_overrides[get_login_rate_limiter] = lambda: limiter
+    bad = {"email": "clock.limit@example.com", "password": "wrong"}
+    assert client.post("/auth/login", json=bad).status_code == 401
+    first = client.post("/auth/login", json=bad)
+    now[0] += 4
+    second = client.post("/auth/login", json=bad)
+    third = client.post("/auth/login", json=bad)
+    assert first.status_code == second.status_code == 429
+    assert third.status_code == 429
+    assert first.headers["Retry-After"] == "10"
+    assert second.headers["Retry-After"] == "6"
+    assert third.headers["Retry-After"] == "6"
 
 
 def test_register_success_response_omits_credentials(
@@ -197,6 +479,62 @@ def test_auth_validation_errors_redact_passwords_and_keep_field_details(
     output = capsys.readouterr()
     assert register_password not in output.out + output.err
     assert login_password not in output.out + output.err
+
+
+def test_login_password_length_is_checked_before_limiter_db_and_argon(
+    client: TestClient, db_session: Session, test_engine, monkeypatch
+) -> None:
+    email = "password.boundary@example.com"
+    assert (
+        client.post(
+            "/auth/register",
+            json={
+                "email": email,
+                "password": "CorrectPassword123!",
+                "full_name": "Password Boundary",
+                "role": "client",
+            },
+        ).status_code
+        == status.HTTP_201_CREATED
+    )
+
+    limiter = InMemoryRateLimiter()
+    app.dependency_overrides[get_login_rate_limiter] = lambda: limiter
+    verifier_calls: list[int] = []
+    monkeypatch.setattr(
+        "app.auth.service.verify_password",
+        lambda *_args: (verifier_calls.append(1) or False, False),
+    )
+    statements: list[str] = []
+
+    def record_statement(_conn, _cursor, statement, *_args):
+        statements.append(statement)
+
+    event.listen(test_engine, "before_cursor_execute", record_statement)
+    try:
+        accepted_length = client.post(
+            "/auth/login", json={"email": email, "password": "x" * 128}
+        )
+        assert accepted_length.status_code == status.HTTP_401_UNAUTHORIZED
+        assert len(verifier_calls) == 1
+        assert limiter.tracked_key_count == 2
+
+        statements.clear()
+        for length in (129, 1024 * 1024):
+            submitted = "x" * length
+            started = time.perf_counter()
+            response = client.post(
+                "/auth/login", json={"email": email, "password": submitted}
+            )
+            elapsed = time.perf_counter() - started
+            assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+            assert submitted not in response.text
+            assert elapsed < 2.0
+            assert statements == []
+            assert len(verifier_calls) == 1
+            assert limiter.tracked_key_count == 2
+    finally:
+        event.remove(test_engine, "before_cursor_execute", record_statement)
 
 
 def test_auth_payload_reprs_do_not_include_passwords() -> None:
@@ -391,6 +729,104 @@ def test_login_and_me_accept_reserved_test_domain_email(
     )
     assert me_response.status_code == status.HTTP_200_OK
     assert me_response.json()["email"] == email
+
+
+def test_registration_and_login_share_canonical_idn_email(
+    client: TestClient, db_session: Session
+) -> None:
+    password = secrets.token_urlsafe(18)
+    typed = "  Mixed.Puny@XN--BCHER-KVA.COM  "
+    register_response = client.post(
+        "/auth/register",
+        json={
+            "email": typed,
+            "password": password,
+            "full_name": "Canonical Email",
+            "role": "client",
+        },
+    )
+    assert register_response.status_code == status.HTTP_201_CREATED
+    stored_email = register_response.json()["email"]
+    assert stored_email == "mixed.puny@bücher.com"
+    assert db_session.scalar(select(User).where(User.email == stored_email))
+
+    equivalent_addresses = (
+        typed,
+        typed.strip().lower(),
+        "mixed.puny@bücher.com",
+    )
+    for address in equivalent_addresses:
+        assert (
+            client.post(
+                "/auth/login", json={"email": address, "password": password}
+            ).status_code
+            == status.HTTP_200_OK
+        )
+        assert UserLogin(email=address, password=password).email == stored_email
+
+    duplicate = client.post(
+        "/auth/register",
+        json={
+            "email": "mixed.puny@bücher.com",
+            "password": password,
+            "full_name": "Duplicate Canonical Email",
+            "role": "client",
+        },
+    )
+    assert duplicate.status_code == status.HTTP_409_CONFLICT
+
+
+def test_registration_canonicalizes_unicode_and_surrounding_whitespace(
+    client: TestClient,
+) -> None:
+    password = secrets.token_urlsafe(18)
+    for typed, expected in (
+        ("Unicode@bücher.com", "unicode@bücher.com"),
+        ("  Spaced@EXAMPLE.COM  ", "spaced@example.com"),
+    ):
+        response = client.post(
+            "/auth/register",
+            json={
+                "email": typed,
+                "password": password,
+                "full_name": "Canonical Email",
+                "role": "client",
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["email"] == expected
+        for login_address in (typed, typed.strip().lower()):
+            assert (
+                client.post(
+                    "/auth/login",
+                    json={"email": login_address, "password": password},
+                ).status_code
+                == status.HTTP_200_OK
+            )
+
+
+def test_equivalent_email_forms_share_one_limiter_key(client: TestClient) -> None:
+    limiter = InMemoryRateLimiter(max_failures_per_email=4, max_failures_per_ip=20)
+    app.dependency_overrides[get_login_rate_limiter] = lambda: limiter
+    forms = (
+        "shared@xn--bcher-kva.com",
+        "shared@bücher.com",
+        "SHARED@XN--BCHER-KVA.COM",
+        " shared@bücher.com ",
+    )
+    for address in forms:
+        response = client.post(
+            "/auth/login", json={"email": address, "password": "wrong"}
+        )
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    assert limiter.retry_after("email:shared@bücher.com") is not None
+    assert limiter.tracked_key_count == 2
+    blocked = client.post(
+        "/auth/login",
+        json={"email": "shared@xn--bcher-kva.com", "password": "wrong"},
+    )
+    assert blocked.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
 
 def test_full_name_rejects_nul_and_accepts_unicode_names(

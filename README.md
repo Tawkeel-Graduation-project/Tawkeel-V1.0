@@ -1,6 +1,6 @@
 # Tawkeel (توكيل)
 
-Tawkeel is an agentic AI workflow platform for Egyptian lawyers, legal consultants, and small firms. This monorepo currently contains the backend foundation, PostgreSQL schema and migrations, demo seed data, and register/login/current-user authentication.
+Tawkeel is an agentic AI workflow platform for Egyptian lawyers, legal consultants, and small firms. This monorepo contains the backend foundation, PostgreSQL schema and migrations, demo seed data, register/login/current-user authentication, and an Arabic-first RTL Next.js frontend application.
 
 ## Repository layout
 
@@ -18,6 +18,15 @@ backend/
   .python-version
   Dockerfile
   .dockerignore
+frontend/
+  src/
+    app/        # Next.js App Router (auth, client & lawyer portals, UI catalog)
+    components/ # AppShell, brand, auth forms, and shared design system components
+    lib/        # Auth context, API client, navigation, and formatting utilities
+  package.json
+  tsconfig.json
+  eslint.config.mjs
+  next.config.ts
 .github/workflows/ci.yml
 .env.example
 docker-compose.yml
@@ -30,6 +39,7 @@ context.md
 
 - Python 3.12, managed through `backend/.python-version` and uv.
 - [uv](https://docs.astral.sh/uv/getting-started/installation/) for dependency and command management.
+- Node.js (v20+ or v22) and npm for the frontend.
 - Docker Engine and Docker Compose v2 for PostgreSQL and the containerized app.
 
 ## Configure and run locally
@@ -64,6 +74,16 @@ Check health from another terminal:
 ```sh
 curl -f http://localhost:8000/health
 ```
+
+Run the frontend in a separate terminal:
+
+```sh
+cd frontend
+npm install
+npm run dev
+```
+
+Visit [http://localhost:3000](http://localhost:3000) for the application interface and [http://localhost:3000/ui](http://localhost:3000/ui) for the shared UI component catalog.
 
 To run the app in Compose instead of uvicorn, first apply migrations from `backend/` as above, stop the local uvicorn process, and start the app service from the repository root:
 
@@ -114,6 +134,30 @@ uv run pytest -q
 ```
 
 When `TEST_DATABASE_URL` is unset, the integration module reports an explicit skip locally. In CI (`CI=true`), the same missing setting fails the test run.
+
+## Frontend application
+
+The frontend is an Arabic-first (RTL) web application built with **Next.js 16 (App Router)**, **React 19**, **TypeScript**, and **Tailwind CSS v4**:
+
+- **Arabic-first RTL Design:** Native RTL layout (`<html lang="ar" dir="rtl">`) built strictly with logical Tailwind utility classes (`ms-/me-`, `ps-/pe-`, `start-/end-`, `border-s/e`, `text-start`).
+- **Self-hosted Typography:** IBM Plex Sans Arabic font is self-hosted via `@fontsource/ibm-plex-sans-arabic` for zero external Google Font requests, ensuring full offline reliability.
+- **Portals & Navigation:**
+  - **Client Portal (`/client`):** Assistant, requests, documents, and profile.
+  - **Lawyer Workspace (`/lawyer`):** Active cases, incoming requests, schedule, legal research, and profile.
+  - **AppShell (`src/components/shell/`):** Unified responsive layout with role-based navigation, desktop sidebar, and mobile drawer.
+- **Authentication Screens (`/login`, `/register`):** RTL auth layouts with full Egyptian mobile number (`01xxxxxxxxx`) and email validation, password strength feedback, and terms/privacy agreements.
+- **Shared Design System (`src/components/ui/`):** Buttons, text fields, password fields, badges, alerts, cards, directional icons, and async error/loading skeletons. Browse live at `/ui`.
+
+### Frontend development scripts
+
+```sh
+cd frontend
+npm install
+npm run dev        # Starts Next.js dev server at http://localhost:3000
+npm run build      # Creates production build
+npm start          # Runs production server
+npm run lint       # Runs ESLint checks
+```
 
 ## Authentication API
 
@@ -218,7 +262,7 @@ JWT decoding pins `HS256` and requires `sub`, `iat`, and `exp`. Injected-time ex
 
 ## Known limitations and intentionally excluded work
 
-The current authentication scope does not include refresh tokens or revocation, email verification or password reset, or lawyer onboarding/profile management. The repository does not yet include frontend code or LLM/RAG integrations. These items are separate work; no additional API conventions or product scope are implied by this setup.
+The current authentication scope does not include refresh tokens or revocation, email verification or password reset, or lawyer onboarding/profile management. LLM/RAG integrations are separate work; no additional API conventions or product scope are implied by this setup.
 
 The health route is a repository setup check, not a product API contract.
 

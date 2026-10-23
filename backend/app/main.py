@@ -7,17 +7,18 @@ from fastapi.responses import JSONResponse
 
 from app.auth.router import router as auth_router
 from app.core.config import get_settings
+from app.retrieval.router import router as retrieval_router
 
 settings = get_settings()
 app = FastAPI(title="Tawkeel Backend")
 
 
 @app.exception_handler(RequestValidationError)
-async def auth_validation_exception_handler(
+async def sensitive_validation_exception_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
-    """Redact submitted values from authentication validation responses."""
-    if not request.url.path.startswith("/auth/"):
+    """Redact submitted values from authentication and retrieval errors."""
+    if not request.url.path.startswith(("/auth/", "/retrieval/")):
         return await request_validation_exception_handler(request, exc)
 
     detail = [
@@ -28,6 +29,7 @@ async def auth_validation_exception_handler(
 
 
 app.include_router(auth_router, prefix="/auth", tags=["auth"])
+app.include_router(retrieval_router, prefix="/retrieval", tags=["retrieval"])
 
 
 @app.get("/health")

@@ -1,0 +1,1 @@
+"""Legal chunk retrieval API."""

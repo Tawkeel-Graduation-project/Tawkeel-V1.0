@@ -11,6 +11,7 @@ from app.db.models import LegalChunk
 
 EMBEDDING_DIMENSIONS = 1024
 DEFAULT_SEARCH_LIMIT = 10
+MAX_SEARCH_LIMIT = 50
 
 
 def validate_embedding(embedding: Sequence[Real]) -> list[float]:
@@ -54,8 +55,12 @@ def search_legal_chunks(
     limit: int = DEFAULT_SEARCH_LIMIT,
 ) -> list[tuple[LegalChunk, float]]:
     """Return embedded chunks ordered by ascending cosine distance."""
-    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
-        raise ValueError("limit must be a positive integer")
+    if (
+        isinstance(limit, bool)
+        or not isinstance(limit, int)
+        or not 1 <= limit <= MAX_SEARCH_LIMIT
+    ):
+        raise ValueError(f"limit must be an integer from 1 to {MAX_SEARCH_LIMIT}")
 
     query_embedding = validate_embedding(embedding)
     distance = LegalChunk.embedding.cosine_distance(query_embedding)

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.db.models import LegalChunk
 from app.db.vector_store import (
     EMBEDDING_DIMENSIONS,
+    MAX_SEARCH_LIMIT,
     add_legal_chunk,
     search_legal_chunks,
 )
@@ -83,11 +84,11 @@ def test_store_and_search_legal_chunks_by_cosine_distance(db_session: Session) -
     assert farthest.id not in {chunk.id for chunk, _distance in results}
 
 
-@pytest.mark.parametrize("limit", [0, -1, True, 1.5])
+@pytest.mark.parametrize("limit", [0, -1, True, 1.5, MAX_SEARCH_LIMIT + 1])
 def test_search_rejects_invalid_limit_without_querying_database(
     db_session: Session, limit
 ) -> None:
-    with pytest.raises(ValueError, match="positive integer"):
+    with pytest.raises(ValueError, match="integer from 1"):
         search_legal_chunks(db_session, make_embedding(first=1.0), limit=limit)
 
 

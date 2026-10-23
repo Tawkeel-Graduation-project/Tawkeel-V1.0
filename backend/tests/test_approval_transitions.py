@@ -73,7 +73,10 @@ def test_approval_must_be_explicit_and_actor_context_is_required(
         state_machine.decide(pending_request, ApprovalState.APPROVED, None)
     with pytest.raises(TypeError, match="ApprovalActor"):
         state_machine.decide(pending_request, ApprovalState.APPROVED, True)
+    with pytest.raises(TypeError, match="user_id must be a UUID"):
+        ApprovalActor(user_id="not-a-uuid", role="lawyer")
     assert pending_request.state is ApprovalState.PENDING
+    assert pending_request.decided_by is None
 
 
 @pytest.mark.parametrize("destination", [ApprovalState.PENDING, "approved", True])
@@ -99,13 +102,16 @@ def test_only_the_policy_authorized_lawyer_can_decide(
     with pytest.raises(UnauthorizedApproverError):
         state_machine.decide(pending_request, ApprovalState.APPROVED, actor)
     assert pending_request.state is ApprovalState.PENDING
+    assert pending_request.decided_by is None
 
 
 @pytest.mark.parametrize(
     ("current_state", "destination"),
     [
         (ApprovalState.PENDING, ApprovalState.PENDING),
+        (ApprovalState.APPROVED, ApprovalState.APPROVED),
         (ApprovalState.APPROVED, ApprovalState.REJECTED),
+        (ApprovalState.REJECTED, ApprovalState.REJECTED),
         (ApprovalState.REJECTED, ApprovalState.APPROVED),
     ],
 )
@@ -121,6 +127,7 @@ def test_invalid_source_destination_transitions_are_rejected_without_mutation(
             current_state,
             ApprovalActor(user_id=uuid.uuid4(), role="lawyer"),
         )
+    original_decided_by = request.decided_by
 
     with pytest.raises(InvalidApprovalTransitionError):
         state_machine.decide(
@@ -129,6 +136,7 @@ def test_invalid_source_destination_transitions_are_rejected_without_mutation(
             ApprovalActor(user_id=uuid.uuid4(), role="lawyer"),
         )
     assert request.state is current_state
+    assert request.decided_by == original_decided_by
 
 
 def test_unknown_and_unresolved_actions_cannot_enter_approval_flow(
@@ -193,6 +201,20 @@ def test_pending_or_rejected_decision_cannot_validate_as_approved(
             "case-123",
             {"recipient": "client@example.test", "body": "Changed"},
         ),
+        (
+            "send_consequential_correspondence",
+            "case-123",
+            {
+                "recipient": "client@example.test",
+                "body": "Draft",
+                "cc": "lawyer@example.test",
+            },
+        ),
+        (
+            "send_consequential_correspondence",
+            "case-123",
+            {"body": "Draft"},
+        ),
     ],
 )
 def test_approval_cannot_be_reused_for_other_action_target_or_parameters(
@@ -209,6 +231,8 @@ def test_approval_cannot_be_reused_for_other_action_target_or_parameters(
 
     with pytest.raises(ApprovalBindingMismatchError):
         state_machine.validate_approved_for(approved, action_id, target_id, parameters)
+    assert approved.state is ApprovalState.APPROVED
+    assert approved.decided_by == lawyer_actor.user_id
 
 
 def test_parameter_order_does_not_change_approval_binding(

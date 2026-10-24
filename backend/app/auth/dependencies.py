@@ -49,3 +49,30 @@ def get_current_user(
         raise credentials_exception
 
     return user
+
+
+def require_role(*allowed_roles: str):
+    """Dependency factory enforcing that the authenticated user has an authorized role.
+
+    Raises:
+        HTTPException(403): If the authenticated user's role is not in allowed_roles.
+        HTTPException(401): If credentials are missing, invalid, or expired.
+    """
+
+    def role_verifier(current_user: User = Depends(get_current_user)) -> User:
+        if current_user.role not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    f"Forbidden: role '{current_user.role}' is not authorized "
+                    "for this resource"
+                ),
+            )
+        return current_user
+
+    return role_verifier
+
+
+require_client = require_role("client")
+require_lawyer = require_role("lawyer")
+require_admin = require_role("admin")

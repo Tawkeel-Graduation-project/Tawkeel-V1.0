@@ -1,8 +1,11 @@
 import type { Metadata } from "next";
-import { PlaceholderPage, pageTitle } from "@/components/placeholder-page";
+import { ChatScreen } from "@/components/chat/chat-screen";
 
-export const metadata: Metadata = { title: pageTitle("client", "/client/assistant") };
+export const metadata: Metadata = {
+  title: "المساعد القانوني",
+  description: "اسأل سؤالًا قانونيًا واحصل على إجابة موثّقة بالنصوص والتشريعات المصرية",
+};
 
-export default function Page() {
-  return <PlaceholderPage role="client" href="/client/assistant" story="المحادثة القانونية مع الاستشهادات (RAG)" />;
+export default function AssistantPage() {
+  return <ChatScreen />;
 }

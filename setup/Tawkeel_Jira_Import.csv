@@ -1,0 +1,353 @@
+Summary,Issue Type,Priority,Description,Labels,Labels,Labels,Labels,Labels
+S1 - Corpus ingestion (small set of laws),Story,Highest,"Planned sprint: 2 | Size: M | Depends on: - | Release: V1
+
+Load a small, chosen set of Egyptian laws (by article) and a sample of published rulings; keep source name, article number, date, and original text; chunk per article. Confirm usage terms.
+[Tech: parsers, Arabic text normalization, embeddings, vector store]",moscow-must,size-m,release-v1,side-shared,epic-legal-knowledge
+S2 - Retrieval service with citations,Story,Highest,"Planned sprint: 2-3 | Size: L | Depends on: S1 | Release: V1
+
+One API: query + optional case context → top passages with source metadata. Evaluated on a lawyer-checked question set.
+[Tech: hybrid search (keyword + vectors), reranker optional]",moscow-must,size-l,release-v1,side-shared,epic-legal-knowledge
+S3 - In-app notifications,Story,Highest,"Planned sprint: 4 | Size: S | Depends on: C8 | Release: V1
+
+In-app only: request accepted/declined, slots proposed, booking confirmed/cancelled.
+[Tech: DB table + polling or WebSocket]",moscow-must,size-s,release-v1,side-shared,epic-platform-accounts
+S4 - Arabic and RTL support,Story,Highest,"Planned sprint: 2-3 | Size: S | Depends on: - | Release: V1
+
+All screens RTL; Arabic normalization (diacritics, alef/yaa variants) in retrieval.
+[Tech: React/Next.js with RTL, normalization library]",moscow-must,size-s,release-v1,side-shared,epic-platform-accounts
+S5 - Local-only operation (offline demo),Story,High,"Planned sprint: 2, 5 | Size: M | Depends on: S2 | Release: V1
+
+The demo runs with the internet unplugged; no case or chat content sent to external APIs.
+[Tech: Docker Compose, local models]",moscow-should,size-m,release-v1,side-shared,epic-legal-knowledge
+S6 - Evaluation harness,Story,Highest,"Planned sprint: 3-5 | Size: M | Depends on: S2 | Release: V1
+
+Scripts that run each metric in section 8 and store the results per version, so progress is measurable and regressions are caught
+[Tech: pytest + notebooks, result tables]",moscow-must,size-m,release-v1,side-shared,epic-legal-knowledge
+"S7 - Corpus expansion (more laws, amendments, rulings)",Story,High,"Planned sprint: Dec / 6 | Size: M | Depends on: S1 | Release: V2
+
+More laws, amendments with dates and versions, more rulings; check usage terms per source
+[Tech: ingestion pipeline]",moscow-should,size-m,release-v2,side-shared,epic-legal-knowledge
+S8 - Hosting and deployment,Story,High,"Planned sprint: 11-12 | Size: L | Depends on: Stable app | Release: V2
+
+Decide and implement online hosting or local packaging; backups
+[Tech: Docker Compose, a hosting option]",moscow-should,size-l,release-v2,side-shared,epic-platform-accounts
+S9 - Security hardening,Story,High,"Planned sprint: 11-12 | Size: M | Depends on: Stable app | Release: V2
+
+Role tests, rate limits, secrets handling, encrypted storage, input validation
+[Tech: standard web security checklist]",moscow-should,size-m,release-v2,side-shared,epic-platform-accounts
+S10 - Colloquial Arabic robustness,Story,Medium,"Planned sprint: 11 | Size: M | Depends on: S2 | Release: V2
+
+Better handling of Egyptian colloquial questions; measured on a colloquial test set
+[Tech: query rewriting, evaluation set]",moscow-could,size-m,release-v2,side-shared,epic-legal-knowledge
+C1 - Sign up / log in,Story,Highest,"Planned sprint: 2 | Size: M | Depends on: - | Release: V1
+
+As a client, I want a simple account so my requests and chats are saved.
+- Steps: register (name, phone/email, password) → log in → land on chat.
+- Done when: passwords stored hashed; session expires; client sees only their own data.
+- Edge: duplicate email → clear error.
+- [Tech: FastAPI auth + JWT, PostgreSQL]",moscow-must,size-m,release-v1,side-client,epic-platform-accounts
+C2 - Ask a legal question (cited answers),Story,Highest,"Planned sprint: 3 | Size: M | Depends on: S2 | Release: V1
+
+As a client, I want to ask a basic question in Arabic (formal or colloquial) and get an answer I can trust.
+- Steps: client types question → system normalizes Arabic → retrieves relevant articles/rulings → LLM answers only from retrieved text → UI shows answer + citations (law, article number, quoted passage).
+- Done when: every claim has a citation; a visible disclaimer (""general information, not legal advice""); answer language follows the client's.
+- Edge: nothing relevant retrieved → ""I couldn't find a reliable source for this,"" plus the lawyer-request button. Never answer without a source.
+- Edge: question outside Egyptian law or harmful → polite refusal.
+- [Tech: Arabic-capable embedding model + vector store (pgvector/Qdrant) · local LLM via Ollama/vLLM · reranker optional]",moscow-must,size-m,release-v1,side-client,epic-client-chat-contracts
+C3 - Follow-up questions in the same chat,Story,High,"Planned sprint: 3 | Size: S | Depends on: C2 | Release: V1
+
+As a client, I want to ask follow-ups without repeating myself.
+- Steps: chat history kept per conversation; each turn rewrites the question with context before retrieval.
+- Done when: a follow-up like ""وإذا كان العقد شفهي؟"" retrieves correctly using earlier context.
+- [Tech: conversation state in DB, query-rewrite prompt]",moscow-should,size-s,release-v1,side-client,epic-client-chat-contracts
+C4 - Contract review,Story,High,"Planned sprint: 5 | Size: L | Depends on: S2 | Release: V1
+
+As a client, I want to submit a contract and understand it, so I don't sign something harmful.
+- Steps: paste text or upload a typed PDF/DOCX → extract text → split into clauses → for each clause: plain-Arabic explanation, risk flag (ok / check / risky), reason, and relevant Egyptian law article cited → check a fixed list of commonly expected clauses (parties, term, payment, termination, penalties, jurisdiction) and list missing ones → summary report → button ""ask a lawyer to review"" (attaches the report to a lawyer request).
+- Done when: every flag has a reason and a source or says ""no source""; report ends with a ""not legal advice"" notice; one contract takes under a few minutes locally.
+- Edge: scanned/handwritten file → ""text could not be read; paste the text instead"" (no OCR in V1).
+- Edge: not a contract → say so.
+- [Open]: whether clients may upload their own contracts to an online service (section 7). V1 runs locally with synthetic contracts.
+- [Tech: pdf/docx text extraction (pdfplumber/python-docx) · clause splitter (rules + LLM) · local LLM with structured JSON output · retrieval service]",moscow-should,size-l,release-v1,side-client,epic-client-chat-contracts
+C5 - Request a lawyer: intake chat and summary,Story,Highest,"Planned sprint: 3 | Size: L | Depends on: C2 | Release: V1
+
+As a client, I want to describe my problem once, in my own words, and have the system gather what a lawyer needs.
+- Trigger: client taps ""I need a lawyer"" or the chat suggests it.
+- Steps: agent classifies the legal niche from a fixed list (e.g. personal status, criminal, civil, commercial, labor, real estate, administrative) → asks targeted missing-info questions (who, what, when, documents held, urgency, budget range, city, preferred meeting times) → stops when required fields are filled or the client says ""that's all"" → builds the structured summary.
+- Done when: summary has niche, facts, dates, parties (as the client describes them), urgency, budget, preferred times, the relevant cited articles, and the chat transcript; unknown fields are shown as ""not provided"", never invented.
+- Edge: niche unclear → ask the client to choose from the list.
+- [Tech: LLM with tool-calling/structured output, a state machine for required fields (LangGraph or plain Python)]",moscow-must,size-l,release-v1,side-client,epic-requests-matching
+C6 - Review and confirm summary before sending,Story,Highest,"Planned sprint: 3 | Size: S | Depends on: C5 | Release: V1
+
+As a client, I want to see and edit what is sent about me, so nothing goes to a lawyer without my approval.
+- Steps: show summary → client edits any field → ""Send to lawyer"" requires explicit confirmation → logged.
+- Done when: nothing is sent before confirmation; the client sees exactly what the lawyer will see.
+- [Tech: editable form, audit log]",moscow-must,size-s,release-v1,side-client,epic-requests-matching
+"C7 - Lawyer suggestions (niche, budget, rating)",Story,Highest,"Planned sprint: 3 | Size: M | Depends on: L2 | Release: V1
+
+As a client, I want to see lawyers in the right niche that fit my budget, so I can choose.
+- Steps: filter lawyers by niche → by fee range vs. client budget → sort by rating (then availability) → show top results: name, specialization, years, fee range, rating, next free slot, and a short ""why suggested"" line → client picks one.
+- Done when: results match the filters; the ranking rule is stated on screen; no paid placement.
+- Edge: no lawyer fits the budget → show nearest matches with a note.
+- Data: synthetic lawyer profiles in V1 [Proposed]; real ratings need real usage (V2).
+- [Tech: SQL filtering and ranking; LLM only for the one-line explanation]",moscow-must,size-m,release-v1,side-client,epic-requests-matching
+C8 - Send request and track status,Story,Highest,"Planned sprint: 4 | Size: M | Depends on: C6, C7 | Release: V1
+
+As a client, I want to see whether my request is pending, accepted, or declined.
+- Steps: request created (status pending) → client sees a status page → notified in-app when the lawyer responds.
+- Done when: status updates within seconds; the client can cancel while pending.
+- [Tech: request status model, in-app notifications (polling or WebSocket)]",moscow-must,size-m,release-v1,side-client,epic-requests-matching
+C9 - Handle declined / expired requests,Story,Highest,"Planned sprint: 4 | Size: S | Depends on: L5 | Release: V1
+
+As a client, I want to try another lawyer without starting over.
+- Steps: decline (with the lawyer's optional reason) → client notified → shown the suggestion list again, with the same summary reused → can send to another lawyer. If a lawyer does not respond within a set time ([Open], e.g. 48h), the request is marked expired and the same options appear.
+- [Tech: status transitions, timeout job]",moscow-must,size-s,release-v1,side-client,epic-requests-matching
+C10 - Book the meeting (scheduling agent),Story,Highest,"Planned sprint: 4 | Size: L | Depends on: L3, L5 | Release: V1
+
+As a client, I want to pick a time without back-and-forth.
+- Trigger: lawyer accepts [Confirmed mechanism, fully autonomous].
+- Steps: scheduling agent reads the lawyer's free slots and the client's preferred times → proposes available slots → client selects one → booking is created and shown on both calendars → both notified.
+- Done when: no double-booking; booking is visible to both; every agent action is logged.
+- Edge: no overlap → agent offers the nearest slots.
+- Edge: no slot chosen within a set time → reminder, then the request returns to ""needs scheduling"".
+- [Tech: slot-computation function, agent as a state machine with tool functions, calendar tables in PostgreSQL]",moscow-must,size-l,release-v1,side-client,epic-scheduling-calendar
+C11 - Cancel or reschedule,Story,High,"Planned sprint: 5 | Size: S | Depends on: C10 | Release: V1
+
+As a client or lawyer, I want to cancel, and have a new time found.
+- Steps: cancel → slot freed → the same compute-and-send flow restarts (no separate reschedule path [Confirmed]) → the other party is notified.
+- [Tech: same scheduling agent]",moscow-should,size-s,release-v1,side-client,epic-scheduling-calendar
+C12 - My requests and history,Story,High,"Planned sprint: 5 | Size: S | Depends on: C8 | Release: V1
+
+As a client, I want to see past chats, requests, and meetings.
+- [Tech: list views over existing tables]",moscow-should,size-s,release-v1,side-client,epic-requests-matching
+"C13 - Terms, privacy consent, data deletion",Story,Highest,"Planned sprint: 3 | Size: S | Depends on: C1 | Release: V1
+
+As a client, I want to know how my data is used and agree to it knowingly, so I stay in control.
+- Steps: at sign-up, show Terms of Service and a separate Privacy Notice (what is stored, who sees it, where it is processed) → explicit unticked consent checkbox (not bundled with the terms) → consent stored with timestamp and document version → a second explicit consent at C6 for sharing the summary with the chosen lawyer → ""Delete my data"" button in settings.
+- Done when: the app can't be used without consent; the consent record is retrievable; deletion removes the client's chats, requests, and contract text (case records the lawyer already holds follow the lawyer's own retention, noted in the terms).
+- [Open]: the wording must be reviewed by a lawyer; terms alone may not satisfy every data-protection rule (see Open question 1).
+- [Tech: consent table, versioned legal-text files, deletion job]",moscow-must,size-s,release-v1,side-client,epic-platform-accounts
+C14 - Contract writing,Story,High,"Planned sprint: 7 | Size: L | Depends on: L17, S2 | Release: V2
+
+As a client, I want a contract drafted for my situation, so I don't start from a random internet template.
+- Steps: choose a contract type from a fixed list (e.g. rental, sale, services, employment) → agent asks the mandatory details (parties, subject, price, duration, payment terms, obligations, termination, jurisdiction) → builds the draft from a lawyer-reviewed clause library (the LLM fills details and adapts wording, it does not invent clauses) → each clause shows a plain-Arabic explanation and a cited provision → agent flags risky or unusual choices → client reviews/edits → export DOCX/PDF with a ""not legal advice"" notice → optional ""ask a lawyer to review this draft"" (attaches it to a request).
+- Done when: no draft is generated until all mandatory fields are filled; every clause traces to the library; export opens correctly in Word with Arabic RTL.
+- Edge: unsupported contract type → say so and offer a lawyer request. Client deletes a protective clause → warning before export.
+- Depends on: L17 (clause library), S2, C4's risk-flag logic.
+- [Tech: clause library in DB/JSON, local LLM with Pydantic-validated output, python-docx/WeasyPrint export, LangGraph or state machine]",moscow-should,size-l,release-v2,side-client,epic-client-chat-contracts
+C15 - Chat over an attached document,Story,Medium,"Planned sprint: 12 if time | Size: M | Depends on: Privacy decision, C2 | Release: V2
+
+As a client, I want to ask questions about my own typed document, so I understand it without a full review.
+- Steps: attach a typed PDF/DOCX → extract text → chunk and index for this conversation only → client asks → answer cites the exact section of the attachment and, when relevant, the law.
+- Done when: the attachment and its index are deleted with the chat; size and type limits shown.
+- Edge: scanned/handwritten file → ""paste the text instead.""
+- Depends on: the privacy decision, C2.
+- [Tech: pdfplumber/python-docx, per-conversation vector index, retrieval service]",moscow-could,size-m,release-v2,side-client,epic-client-chat-contracts
+C16 - Rate and review a lawyer,Story,High,"Planned sprint: 8 | Size: S | Depends on: C10 | Release: V2
+
+As a client, I want to rate my lawyer after the meeting, so other clients choose better.
+- Steps: meeting marked completed → client prompted → 1-5 stars + optional comment → average and count shown on the lawyer card in C7 → ranking uses the average.
+- Done when: one review per completed meeting, only by that client; rating can't be given before the meeting; reviews can be reported (A2).
+- Edge: very few reviews → show the count, don't rank a lone 5-star above a lawyer with many good ones (simple minimum-count rule).
+- Depends on: C10, L5.
+- [Tech: reviews table, rating aggregation with a minimum-count rule]",moscow-should,size-s,release-v2,side-client,epic-requests-matching
+C17 - Reminders and email/SMS notifications,Story,Medium,"Planned sprint: 9 | Size: M | Depends on: C10, S3 | Release: V2
+
+As a client or lawyer, I want a reminder before the meeting even if I'm not in the app.
+- Steps: booking created → schedule reminders (e.g. 24h and 1h before) → send by the user's chosen channel (in-app, then email, SMS later) → cancellation stops pending reminders.
+- Done when: each reminder sends once; changes in the booking update the reminders.
+- Edge: provider failure → retry, then fall back to in-app.
+- Depends on: C10, S3.
+- [Tech: scheduled jobs (APScheduler/Celery), email provider]",moscow-could,size-m,release-v2,side-client,epic-scheduling-calendar
+C18 - Secure document sharing with the lawyer,Story,Medium,"Planned sprint: 10 | Size: M | Depends on: Privacy decision, L6 | Release: V2
+
+As a client, I want to send my papers to the lawyer inside the platform, instead of by chat apps.
+- Steps: after acceptance, client uploads files (PDF/DOCX/images) → type and size check → stored encrypted → visible only to the client and the accepted lawyer → lawyer can attach files to the case → every access is logged → client can delete files.
+- Done when: other users cannot open the files; the log shows who opened what and when.
+- Depends on: the privacy decision, L6.
+- [Tech: encrypted file storage, access control, audit log]",moscow-could,size-m,release-v2,side-client,epic-case-workspace-agents
+C19 - In-platform messaging with the lawyer,Story,Low,"Planned sprint: Not built | Size: L | Depends on: - | Release: Future
+
+As a client or lawyer, I want to message each other inside the platform, so the conversation stays on record.
+- Spec: one thread per accepted request, text only, unread counters, notification on new message, report-abuse button, thread closes with the case. Also supports the off-platform problem. Not built because it needs real-time messaging, moderation, and retention rules.",moscow-wont,size-l,release-future,side-client,epic-requests-matching
+C20 - Plain-language case updates (client view),Story,Medium,"Planned sprint: 10 | Size: S | Depends on: L15, S3 | Release: V2
+
+As a client, I want to see my case progress in simple Arabic, so I don't need to chase my lawyer.
+- Steps: lawyer approves an update (L15) → it appears in a timeline in the client portal → client is notified → client can send a short question back (becomes a note on the case).
+- Done when: only approved updates are visible; the client sees nothing the lawyer hasn't approved.
+- Depends on: L15, S3.
+- [Tech: update feed view, notification]",moscow-could,size-s,release-v2,side-client,epic-case-workspace-agents
+C21 - Payments and commission,Story,Low,"Planned sprint: Not built | Size: L | Depends on: - | Release: Future
+
+As a client, I want to pay the consultation fee through the platform.
+- Spec: lawyer sets a consultation fee → payment at booking through a payment gateway → platform commission on the first match → refund rules on cancellation → receipts. Not built because it needs business and legal decisions (commission model, licensing of payments).",moscow-wont,size-l,release-future,side-client,epic-requests-matching
+C22 - Voice input and mobile app,Story,Low,"Planned sprint: Not built | Size: L | Depends on: - | Release: Future
+
+As a client, I want to speak my problem in Egyptian Arabic and use the app on my phone.
+- Spec: speech-to-text in the chat, installable web app (PWA) or native client. Not built; colloquial speech recognition is a project of its own.",moscow-wont,size-l,release-future,side-client,epic-requests-matching
+L1 - Sign up / log in / roles,Story,Highest,"Planned sprint: 2 | Size: S | Depends on: - | Release: V1
+
+As a lawyer, I want my own account so I only see my requests and cases.
+- Done when: lawyers see only their own cases; admin role can add/remove lawyer profiles.
+- [Tech: same auth as C1 with a role field]",moscow-must,size-s,release-v1,side-lawyer,epic-platform-accounts
+L2 - Lawyer profile,Story,Highest,"Planned sprint: 2 | Size: S | Depends on: L1 | Release: V1
+
+As a lawyer, I want my specialization, fee range, city, and experience shown, so I get fitting requests.
+- Fields: name, bar level (optional), niches (from the fixed list), fee range, city, years of experience, short bio.
+- Done when: changes immediately affect C7 results.
+- [Tech: profile form + table]",moscow-must,size-s,release-v1,side-lawyer,epic-platform-accounts
+L3 - Availability and calendar,Story,Highest,"Planned sprint: 3 | Size: M | Depends on: L1 | Release: V1
+
+As a lawyer, I want to set when I'm free, so clients can only book those times.
+- Steps: weekly recurring availability + one-off blocks → calendar view with bookings and (later) sessions/deadlines.
+- Done when: the scheduling agent only offers slots inside availability and outside existing bookings.
+- [Tech: availability tables, calendar UI component (FullCalendar or similar)]",moscow-must,size-m,release-v1,side-lawyer,epic-scheduling-calendar
+L4 - Request inbox,Story,Highest,"Planned sprint: 3 | Size: M | Depends on: C6, L1 | Release: V1
+
+As a lawyer, I want incoming requests in one list with the AI summary, so I can decide fast.
+- View: niche, urgency, budget, a short summary, full structured summary, the chat transcript, any attached contract review, cited articles, and the client's preferred times.
+- Done when: sorted by urgency/time; unread marked; the lawyer can see exactly what the client approved in C6.
+- [Tech: list/detail views]",moscow-must,size-m,release-v1,side-lawyer,epic-requests-matching
+L5 - Accept or decline,Story,Highest,"Planned sprint: 4 | Size: S | Depends on: L4 | Release: V1
+
+As a lawyer, I want to accept or decline with one action, and the client is told.
+- Steps: Accept → client notified → scheduling starts (C10) → case created (L6). Decline → optional reason (fixed options + free text) → client notified (C9).
+- Done when: both outcomes are logged; the lawyer can't accept the same request twice.
+- [Tech: status transitions + notification service + audit log]",moscow-must,size-s,release-v1,side-lawyer,epic-requests-matching
+L6 - Case record created from request,Story,Highest,"Planned sprint: 4 | Size: M | Depends on: L5 | Release: V1
+
+As a lawyer, I want an accepted request to become a case already filled in, so I don't retype.
+- Case fields: client, niche, summary, facts timeline (from intake), parties, status, linked chat/contract review, notes, saved research, saved case-prep outputs.
+- Done when: the case shows the intake data; the lawyer can edit it; edits are logged.
+- [Tech: Case table, JSON fields for summary, versioned edits]",moscow-must,size-m,release-v1,side-lawyer,epic-case-workspace-agents
+L7 - Research inside a case (cited),Story,Highest,"Planned sprint: 5 | Size: M | Depends on: S2, L6 | Release: V1
+
+As a lawyer, I want to ask legal questions about this case and get cited answers I can save.
+- Steps: question → retrieval over laws and rulings (case facts used as context) → answer with articles and similar rulings, each with the source passage → ""Save to case"".
+- Done when: every statement is source-backed or marked ""no source found""; the lawyer can open the full source text.
+- Edge: conflicting sources → both shown with a note, not merged silently.
+- [Tech: the same retrieval service as C2 + a rulings index · local LLM]",moscow-must,size-m,release-v1,side-lawyer,epic-case-workspace-agents
+L8 - Case prep agent,Story,Highest,"Planned sprint: 5 | Size: L | Depends on: L7 | Release: V1
+
+As a lawyer, I want a structured preparation sheet for the case, so I start from a solid outline.
+- Trigger: lawyer clicks ""Prepare case"".
+- Steps: read the case facts → identify the legal issues → check for missing facts and list questions for the client → retrieve relevant articles and similar rulings → produce a sheet: issues, applicable provisions, similar precedents (cited), possible arguments, weak points, missing information → lawyer reviews and edits → lawyer approves → saved to the case.
+- Done when: each item in the sheet links to its source; each step is logged; a failed step (no sources, invalid output) is shown, not hidden; nothing is saved as approved without the lawyer's click.
+- Why this over drafting first [Proposed]: it needs no Egyptian pleading templates (hard to obtain) and uses the case-law data you confirmed.
+- [Tech: multi-step workflow in LangGraph or plain Python state machine · retrieval service · structured JSON output validated with Pydantic]",moscow-must,size-l,release-v1,side-lawyer,epic-case-workspace-agents
+L9 - Audit log,Story,Highest,"Planned sprint: 3-5 | Size: M | Depends on: All actions | Release: V1
+
+As a lawyer or admin, I want a record of what the AI proposed and who approved it.
+- Logged: AI outputs, client confirmations (C6), accept/decline, scheduling actions, case edits, approvals — with who, when, before/after.
+- Done when: the log can be viewed per case and cannot be edited by users.
+- [Tech: append-only audit table]",moscow-must,size-m,release-v1,side-lawyer,epic-case-workspace-agents
+L10 - Drafting agent,Story,High,"Planned sprint: 6-7 | Size: L | Depends on: L7, L17 | Release: V2
+
+As a lawyer, I want a first draft of a legal document from the case facts, so I edit instead of writing from scratch.
+- Trigger: lawyer clicks ""Draft"" in a case and chooses a document type (e.g. صحيفة دعوى, مذكرة دفاع, إنذار, عقد).
+- Steps: read case facts → check for missing information → ask targeted questions → retrieve relevant provisions and precedents → fill the approved template → show the draft with sources marked per paragraph → lawyer edits in the editor → approves → export DOCX → logged.
+- Done when: every legal statement has a source or is marked unsourced; nothing is exported without approval; a failed step is visible.
+- Edge: lawyer rejects a suggested source → paragraph regenerates without it. Missing facts the lawyer can't supply → draft keeps visible placeholders, never invented values.
+- Depends on: L6, L7, L17. Needs real templates from lawyers.
+- [Tech: LangGraph/state machine, template store, rich-text editor (TipTap/Quill), python-docx]",moscow-should,size-l,release-v2,side-lawyer,epic-case-workspace-agents
+L11 - Document intake with OCR,Story,Medium,"Planned sprint: 6-8 | Size: L | Depends on: Privacy decision, L6 | Release: V2
+
+As a lawyer, I want to turn a photographed handwritten paper into verified case data.
+- Steps: add photo/scan → preprocess (rotate, contrast) → OCR → extract fields (case number, court, date, parties, amounts) with per-field confidence → low-confidence fields highlighted → side-by-side verification → lawyer approves → fields attach to the case.
+- Done when: nothing attaches before approval; critical-field accuracy is measured on synthetic samples and reported.
+- Edge: image too poor → ask for a new photo. Multi-page → pages processed in order. Arabic-Indic and Western digits both read.
+- Depends on: the privacy decision, L6. Your PoC feeds this.
+- [Tech: local OCR/vision model candidates to benchmark, LLM field extraction, verification UI]",moscow-could,size-l,release-v2,side-lawyer,epic-case-workspace-agents
+L12 - Sessions and deadlines tracker,Story,High,"Planned sprint: 8 | Size: L | Depends on: L3, L6 | Release: V2
+
+As a lawyer, I want hearing dates and procedural deadlines tracked, so I never miss one.
+- Steps: add a session (court, date, type) → system proposes deadlines from a small lawyer-validated rules table (each with its legal source) → lawyer confirms → entries appear on the calendar with reminders.
+- Done when: every proposed deadline shows its rule and source; the lawyer can override; nothing is auto-confirmed.
+- Edge: no matching rule → say ""no rule found, enter manually"". Holidays and weekends handled by an explicit rule, not guessed.
+- Risk: a wrong deadline is serious; keep the table small and validated by a lawyer.
+- Depends on: L3, L6.
+- [Tech: rules table, date arithmetic, calendar]",moscow-should,size-l,release-v2,side-lawyer,epic-case-workspace-agents
+L13 - Hearing preparation brief,Story,Medium,"Planned sprint: 9 | Size: M | Depends on: L12, L14 | Release: V2
+
+As a lawyer, I want a one-page brief before each hearing, so I walk in prepared.
+- Steps: a session approaches (or lawyer clicks ""Brief"") → agent gathers case status, last session notes, open tasks, saved research → writes a brief → lawyer edits and approves → saved to the case.
+- Done when: each item links to its source in the case; missing data is shown as ""none recorded"".
+- Depends on: L6, L12, L14.
+- [Tech: workflow over case data, LLM summarization with source links]",moscow-could,size-m,release-v2,side-lawyer,epic-case-workspace-agents
+L14 - Post-hearing notes and follow-ups,Story,Medium,"Planned sprint: 9 | Size: M | Depends on: L12 | Release: V2
+
+As a lawyer, I want to type my session notes and get tasks and the next date extracted.
+- Steps: enter notes → agent extracts the decision, next session date, and tasks → lawyer confirms each item → case and calendar update.
+- Done when: nothing updates before confirmation; extracted items quote the note text they came from.
+- Edge: no date found → ask, don't guess.
+- Depends on: L12.
+- [Tech: LLM structured extraction, Arabic text input]",moscow-could,size-m,release-v2,side-lawyer,epic-case-workspace-agents
+L15 - Client update drafts,Story,Medium,"Planned sprint: 10 | Size: M | Depends on: L6 | Release: V2
+
+As a lawyer, I want a plain-language update drafted from case activity, so keeping clients informed takes seconds.
+- Steps: lawyer clicks ""Draft update"" → agent summarizes recent events in simple Arabic, with no legal jargon and no promises → lawyer edits and must approve → published to the client (C20).
+- Done when: no update is published without approval; the draft never states outcomes or timelines unless they exist in the case record.
+- Depends on: L6.
+- [Tech: LLM drafting, approval flow]",moscow-could,size-m,release-v2,side-lawyer,epic-case-workspace-agents
+L16 - Case chat with memory,Story,Medium,"Planned sprint: 10 | Size: M | Depends on: L7 | Release: V2
+
+As a lawyer, I want to chat with a case that remembers everything about it, so I don't re-explain.
+- Steps: open the case chat → each question retrieves from case facts, notes, saved research, and the law → answer with citations to the case item or the legal source.
+- Done when: answers distinguish ""from this case"" and ""from the law""; the chat can be cleared without deleting the case.
+- Depends on: L7.
+- [Tech: per-case context retrieval, conversation store]",moscow-could,size-m,release-v2,side-lawyer,epic-case-workspace-agents
+L17 - Template and clause library,Story,High,"Planned sprint: 6 | Size: M | Depends on: L6 | Release: V2
+
+As a lawyer or admin, I want to manage templates and clauses, so drafting agents use approved wording.
+- Steps: create a template or clause → set type, required fields, and placeholders → mark approved → edits create a new version → drafting agents use only approved versions.
+- Done when: unapproved templates can't be used; the version used in each draft is recorded.
+- Blocks: L10 and C14.
+- [Tech: templates table with versions, placeholder syntax]",moscow-should,size-m,release-v2,side-lawyer,epic-case-workspace-agents
+L18 - Correspondence draft-and-send,Story,Medium,"Planned sprint: 12 if time | Size: M | Depends on: L5 | Release: V2 stretch
+
+As a lawyer, I want letters and emails drafted and sent from the platform, so my correspondence is in one place.
+- Steps: choose recipient (client or other party) and purpose → agent drafts → lawyer edits → lawyer sees recipient and content and clicks Send → system sends and logs → delivery status shown.
+- Done when: nothing sends without an explicit click; the log keeps the final sent text.
+- Edge: send failure → retry, then visible error.
+- [Tech: email API/SMTP, approval flow, audit log]",moscow-could,size-m,release-v2-stretch,side-lawyer,epic-case-workspace-agents
+L19 - Request rules and fee settings,Story,Medium,"Planned sprint: 10 | Size: M | Depends on: L5 | Release: V2
+
+As a lawyer, I want to filter incoming requests by my rules, so I only see relevant ones.
+- Steps: set niches, minimum budget, cities, and availability rules → requests outside them are hidden or auto-declined with a polite message (lawyer's choice) → client is told and offered other lawyers (C9).
+- Done when: the lawyer can see what was filtered out.
+- Depends on: L5.
+- [Tech: rules applied in the inbox query]",moscow-could,size-m,release-v2,side-lawyer,epic-requests-matching
+L20 - Lawyer dashboard,Story,Medium,"Planned sprint: 10 | Size: M | Depends on: L5 | Release: V2
+
+As a lawyer, I want an overview of my work, so I know what needs me today.
+- Shows: open requests, acceptance rate, upcoming sessions, deadlines at risk, drafts waiting for approval.
+- Done when: each number links to its list.
+- [Tech: aggregate queries, charts]",moscow-could,size-m,release-v2,side-lawyer,epic-requests-matching
+L21 - Firm accounts and shared knowledge base,Story,Low,"Planned sprint: Not built | Size: L | Depends on: - | Release: Future
+
+As a firm admin, I want my lawyers to work in one workspace, so our knowledge and templates are shared.
+- Spec: firm entity with an admin who invites lawyers → roles (admin, lawyer, assistant) → per-case permissions → shared templates and precedents → a private firm knowledge zone searchable with citations → firm-wide audit log → data isolated per firm. This is the B2B firm license; not built because it needs permissions, isolation, and firm-level data handling.",moscow-wont,size-l,release-future,side-lawyer,epic-roadmap-future
+L22 - Law-change monitoring,Story,Low,"Planned sprint: Not built | Size: L | Depends on: - | Release: Future
+
+As a lawyer, I want to be alerted when a law I relied on changes.
+- Spec: watch official sources for amendments → match against saved research and open cases → alert with the changed article and the affected case. Not built because it needs a reliable amendment feed.",moscow-wont,size-l,release-future,side-lawyer,epic-roadmap-future
+L23 - Contract review against a firm playbook,Story,Low,"Planned sprint: Not built | Size: L | Depends on: L21 | Release: Future
+
+As a lawyer, I want incoming contracts compared with my firm's preferred positions.
+- Spec: firm uploads its playbook (preferred clauses, fallback positions) → contract is compared clause by clause → deviations flagged → suggested revisions with cited provisions → lawyer approves. Not built because it depends on firm playbooks (L21).",moscow-wont,size-l,release-future,side-lawyer,epic-roadmap-future
+A1 - Admin console (add/verify lawyers),Story,High,"Planned sprint: 3 | Size: S | Depends on: L1 | Release: V1
+
+Admin creates lawyer accounts, marks verified, can deactivate; all actions logged
+[Tech: admin role + CRUD views]",moscow-should,size-s,release-v1,side-admin,epic-platform-accounts
+A2 - Review moderation,Story,Medium,"Planned sprint: 11 | Size: S | Depends on: C16 | Release: V2
+
+View reported reviews, hide/remove with reason
+[Tech: moderation queue]",moscow-could,size-s,release-v2,side-admin,epic-requests-matching
+A3 - Corpus management,Story,High,"Planned sprint: 6 | Size: M | Depends on: S7 | Release: V2
+
+Add/update laws and rulings, keep versions and dates, re-index, show corpus size
+[Tech: ingestion scripts + admin page]",moscow-should,size-m,release-v2,side-admin,epic-legal-knowledge
+A4 - System health and logs,Story,Medium,"Planned sprint: 12 if time | Size: S | Depends on: - | Release: V2 stretch
+
+Errors, response times, model status
+[Tech: simple dashboard]",moscow-could,size-s,release-v2-stretch,side-admin,epic-platform-accounts

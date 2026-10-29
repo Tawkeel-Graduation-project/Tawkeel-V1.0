@@ -4,10 +4,10 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
+from app.db.models import AuditEvent, Workflow
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import AuditEvent, Workflow
 from services.workflows.states import (
     InvalidTransitionError,
     WorkflowKind,

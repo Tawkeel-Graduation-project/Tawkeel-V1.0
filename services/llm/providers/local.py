@@ -212,13 +212,12 @@ class LocalLLMProvider(BaseLLMProvider):
                     if choices[0].get("finish_reason"):
                         finish_reason = choices[0].get("finish_reason")
 
-                if "usage" in chunk_json and chunk_json["usage"]:
+                usage_data = chunk_json.get("usage")
+                if usage_data:
                     usage = TokenUsage(
-                        prompt_tokens=chunk_json["usage"].get("prompt_tokens", 0),
-                        completion_tokens=chunk_json["usage"].get(
-                            "completion_tokens", 0
-                        ),
-                        total_tokens=chunk_json["usage"].get("total_tokens", 0),
+                        prompt_tokens=usage_data.get("prompt_tokens", 0),
+                        completion_tokens=usage_data.get("completion_tokens", 0),
+                        total_tokens=usage_data.get("total_tokens", 0),
                     )
 
         yield LLMStreamChunk(

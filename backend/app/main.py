@@ -9,6 +9,7 @@ from app.auth.router import router as auth_router
 from app.client.router import router as client_router
 from app.core.config import get_settings
 from app.lawyer.router import router as lawyer_router
+from app.llm.router import router as llm_router
 from app.retrieval.router import router as retrieval_router
 from app.tools.router import router as tools_router
 
@@ -22,7 +23,7 @@ async def sensitive_validation_exception_handler(
 ) -> JSONResponse:
     """Redact submitted values from client, lawyer, auth, and retrieval errors."""
     if not request.url.path.startswith(
-        ("/auth/", "/retrieval/", "/client/", "/lawyer/", "/tools/")
+        ("/auth/", "/retrieval/", "/client/", "/lawyer/", "/tools/", "/llm/")
     ):
         return await request_validation_exception_handler(request, exc)
 
@@ -38,6 +39,7 @@ app.include_router(retrieval_router, prefix="/retrieval", tags=["retrieval"])
 app.include_router(client_router, prefix="/client", tags=["client"])
 app.include_router(lawyer_router, prefix="/lawyer", tags=["lawyer"])
 app.include_router(tools_router, prefix="/tools", tags=["tools"])
+app.include_router(llm_router, prefix="/llm", tags=["llm"])
 
 
 @app.get("/health")

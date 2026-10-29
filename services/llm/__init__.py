@@ -28,9 +28,23 @@ from services.llm.models import (
 from services.llm.provider import BaseLLMProvider
 from services.llm.providers.local import LocalLLMProvider
 from services.llm.providers.mock import MockLLMProvider
+from services.llm.trial import (
+    DEFAULT_LEGAL_TRIAL_PROMPTS,
+    DEFAULT_SYSTEM_PROMPT,
+    TrialMetrics,
+    TrialResult,
+    arun_trial,
+    arun_trial_suite,
+    export_trial_markdown_report,
+    format_trial_summary,
+    run_trial,
+    run_trial_suite,
+)
 
 __all__ = [
     "BaseLLMProvider",
+    "DEFAULT_LEGAL_TRIAL_PROMPTS",
+    "DEFAULT_SYSTEM_PROMPT",
     "InvalidPromptError",
     "LLMConfigurationError",
     "LLMError",
@@ -45,7 +59,15 @@ __all__ = [
     "ModelNotFoundError",
     "ProviderUnavailableError",
     "TokenUsage",
+    "TrialMetrics",
+    "TrialResult",
+    "arun_trial",
+    "arun_trial_suite",
+    "export_trial_markdown_report",
+    "format_trial_summary",
     "get_llm_provider",
     "list_available_providers",
     "register_provider",
+    "run_trial",
+    "run_trial_suite",
 ]

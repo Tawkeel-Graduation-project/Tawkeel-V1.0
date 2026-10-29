@@ -273,17 +273,13 @@ def test_settings_llm_fields_validation() -> None:
         _make_valid_settings(llm_temperature=2.1)
 
 
-def test_app_llm_backward_compatibility_forwarding() -> None:
-    """Ensure app.llm forwarders re-export identical types and functions."""
-    import services.llm as services_llm
+def test_app_llm_router_export() -> None:
+    """Ensure app.llm exposes the FastAPI router."""
+    from fastapi import APIRouter
 
-    import app.llm as legacy_llm
+    import app.llm as app_llm
 
-    assert legacy_llm.get_llm_provider is services_llm.get_llm_provider
-    assert legacy_llm.BaseLLMProvider is services_llm.BaseLLMProvider
-    assert legacy_llm.MockLLMProvider is services_llm.MockLLMProvider
-    assert legacy_llm.LocalLLMProvider is services_llm.LocalLLMProvider
-    assert legacy_llm.LLMMessage is services_llm.LLMMessage
+    assert isinstance(app_llm.router, APIRouter)
 
 
 def test_get_llm_provider_ollama_and_local() -> None:

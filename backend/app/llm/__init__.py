@@ -1,43 +1,5 @@
-"""LLM provider abstraction layer (forwarding to top-level services.llm)."""
+"""FastAPI web layer for LLM provider inspection and trial endpoints."""
 
-from services.llm import (
-    BaseLLMProvider,
-    InvalidPromptError,
-    LLMConfigurationError,
-    LLMError,
-    LLMMessage,
-    LLMParameters,
-    LLMProviderError,
-    LLMResponse,
-    LLMStreamChunk,
-    LocalLLMProvider,
-    MessageRole,
-    MockLLMProvider,
-    ModelNotFoundError,
-    ProviderUnavailableError,
-    TokenUsage,
-    get_llm_provider,
-    list_available_providers,
-    register_provider,
-)
+from app.llm.router import router
 
-__all__ = [
-    "BaseLLMProvider",
-    "InvalidPromptError",
-    "LLMConfigurationError",
-    "LLMError",
-    "LLMMessage",
-    "LLMParameters",
-    "LLMProviderError",
-    "LLMResponse",
-    "LLMStreamChunk",
-    "LocalLLMProvider",
-    "MessageRole",
-    "MockLLMProvider",
-    "ModelNotFoundError",
-    "ProviderUnavailableError",
-    "TokenUsage",
-    "get_llm_provider",
-    "list_available_providers",
-    "register_provider",
-]
+__all__ = ["router"]

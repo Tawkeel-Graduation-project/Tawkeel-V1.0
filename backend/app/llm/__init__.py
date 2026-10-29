@@ -1,0 +1,43 @@
+"""LLM provider abstraction layer (forwarding to top-level services.llm)."""
+
+from services.llm import (
+    BaseLLMProvider,
+    InvalidPromptError,
+    LLMConfigurationError,
+    LLMError,
+    LLMMessage,
+    LLMParameters,
+    LLMProviderError,
+    LLMResponse,
+    LLMStreamChunk,
+    LocalLLMProvider,
+    MessageRole,
+    MockLLMProvider,
+    ModelNotFoundError,
+    ProviderUnavailableError,
+    TokenUsage,
+    get_llm_provider,
+    list_available_providers,
+    register_provider,
+)
+
+__all__ = [
+    "BaseLLMProvider",
+    "InvalidPromptError",
+    "LLMConfigurationError",
+    "LLMError",
+    "LLMMessage",
+    "LLMParameters",
+    "LLMProviderError",
+    "LLMResponse",
+    "LLMStreamChunk",
+    "LocalLLMProvider",
+    "MessageRole",
+    "MockLLMProvider",
+    "ModelNotFoundError",
+    "ProviderUnavailableError",
+    "TokenUsage",
+    "get_llm_provider",
+    "list_available_providers",
+    "register_provider",
+]

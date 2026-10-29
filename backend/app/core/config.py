@@ -1,5 +1,6 @@
 """Environment-backed application settings."""
 
+import sys
 from functools import lru_cache
 from pathlib import Path
 
@@ -7,6 +8,8 @@ from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
 
 JWT_ALGORITHM = "HS256"
 
@@ -23,6 +26,14 @@ class Settings(BaseSettings):
     login_rate_limit_email_max_failures: int = Field(default=5, ge=1, le=100)
     login_rate_limit_window_seconds: int = Field(default=900, ge=1, le=86400)
     login_rate_limit_max_tracked_keys: int = Field(default=10_000, ge=1, le=10_000)
+
+    # LLM provider settings (online vs local)
+    llm_provider: str = Field(default="mock")
+    llm_model: str = Field(default="tawkeel-legal-v1")
+    llm_api_base: str | None = Field(default=None)
+    llm_api_key: SecretStr | None = Field(default=None)
+    llm_temperature: float = Field(default=0.2, ge=0.0, le=2.0)
+    llm_timeout_seconds: float = Field(default=60.0, ge=1.0, le=600.0)
 
     model_config = SettingsConfigDict(
         env_file=REPOSITORY_ROOT / ".env",
@@ -48,6 +59,22 @@ class Settings(BaseSettings):
                 "JWT_SECRET_KEY must contain at least 8 distinct characters"
             )
         return v
+
+    @field_validator("llm_provider")
+    @classmethod
+    def validate_llm_provider(cls, v: str) -> str:
+        provider = v.strip().lower()
+        if not provider:
+            raise ValueError("llm_provider must not be empty")
+        return provider
+
+    @field_validator("llm_model")
+    @classmethod
+    def validate_llm_model(cls, v: str) -> str:
+        model = v.strip()
+        if not model:
+            raise ValueError("llm_model must not be empty")
+        return model
 
     @property
     def sqlalchemy_database_url(self) -> str:

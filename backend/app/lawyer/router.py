@@ -3,6 +3,8 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from services.audit.actions import AuditAction
+from services.audit.service import log_event
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -98,7 +100,16 @@ def update_case_notes(
 ) -> LawyerCaseResponse:
     """Update notes on an assigned case for the authenticated lawyer."""
     case_obj = verify_case_ownership(db, case_id, current_user)
+    old_notes = case_obj.notes
     case_obj.notes = payload.notes
+    log_event(
+        db,
+        actor_id=current_user.id,
+        action=AuditAction.CASE_NOTES_UPDATED,
+        case_id=case_obj.id,
+        before={"notes": old_notes},
+        after={"notes": payload.notes},
+    )
     db.commit()
     db.refresh(case_obj)
     return LawyerCaseResponse.model_validate(case_obj)

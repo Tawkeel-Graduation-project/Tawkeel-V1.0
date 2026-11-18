@@ -1,9 +1,10 @@
-"""Authenticated API routes for legal chunk retrieval."""
+"""Authenticated API routes for legal chunk retrieval with tenant isolation."""
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_user
+from app.auth.ownership import verify_case_ownership
 from app.db.models import User
 from app.db.session import get_db
 from app.db.vector_store import search_legal_chunks
@@ -22,7 +23,18 @@ def retrieve_legal_chunks(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> RetrievalResponse:
-    """Search the shared legal corpus using a validated embedding."""
+    """Search the shared legal corpus using a validated embedding.
+
+    When ``case_id`` is provided, the endpoint first verifies that the
+    authenticated user is authorized to access that case (SCRUM-275 tenant
+    isolation). Unauthorized users receive a 403, ensuring cross-user
+    retrieval returns nothing. The legal corpus itself is public and
+    accessible to all authenticated users regardless of case_id.
+    """
+    # SCRUM-275: enforce tenant isolation when case context is provided
+    if payload.case_id is not None:
+        verify_case_ownership(db, payload.case_id, current_user)
+
     results = search_legal_chunks(db, payload.embedding, limit=payload.limit)
     return RetrievalResponse(
         results=[

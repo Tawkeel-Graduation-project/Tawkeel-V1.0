@@ -3,6 +3,8 @@
 import os
 
 import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session
 
@@ -113,4 +115,10 @@ def test_migration_head_includes_vector_index(test_engine):
     with test_engine.connect() as connection:
         revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
 
-    assert revision == "9a0c317c9f11"
+    config = Config("alembic.ini")
+    script = ScriptDirectory.from_config(config)
+    head_revision = script.get_current_head()
+    applied_revisions = [rev.revision for rev in script.walk_revisions()]
+
+    assert revision == head_revision
+    assert "9a0c317c9f11" in applied_revisions

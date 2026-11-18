@@ -271,9 +271,11 @@ def main() -> int:
         print(f"[*] Running in SIMULATED local mode: '{args.model}'")
         provider = SimulatedLocalProvider(model_name=args.model)
     elif args.provider == "mock":
+
         class DummySettings:
             llm_provider = "mock"
             llm_model = args.model
+
         provider = get_llm_provider(DummySettings())
     else:
         # Check if local daemon is running
@@ -285,6 +287,7 @@ def main() -> int:
             timeout=15.0,
         )
         import anyio
+
         is_healthy = anyio.run(candidate.health_check)
         if not is_healthy:
             print("\n[!] WARNING: Local daemon at", args.api_base, "did not respond.")
@@ -327,9 +330,11 @@ def main() -> int:
         results.append(res)
 
         if args.stream and res.success:
-            print(f"\n  [Done] TTFT: {res.metrics.time_to_first_token_ms}ms | "
-                  f"Total: {res.metrics.total_latency_ms}ms | "
-                  f"Speed: {res.metrics.tokens_per_second} tok/s")
+            print(
+                f"\n  [Done] TTFT: {res.metrics.time_to_first_token_ms}ms | "
+                f"Total: {res.metrics.total_latency_ms}ms | "
+                f"Speed: {res.metrics.tokens_per_second} tok/s"
+            )
         elif not res.success:
             print(f"\n  [Error] {res.error}")
 

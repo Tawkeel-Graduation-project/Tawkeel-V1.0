@@ -3,6 +3,8 @@
 import uuid
 
 from fastapi import APIRouter, Depends, status
+from services.audit.actions import AuditAction
+from services.audit.service import log_event
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -58,6 +60,13 @@ def create_client_request(
         status="pending",
     )
     db.add(new_request)
+    db.flush()
+    log_event(
+        db,
+        actor_id=current_user.id,
+        action=AuditAction.REQUEST_CREATED,
+        request_id=new_request.id,
+    )
     db.commit()
     db.refresh(new_request)
     return ClientRequestResponse.model_validate(new_request)

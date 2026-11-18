@@ -101,4 +101,3 @@ def is_terminal(status: str) -> bool:
         return WorkflowStatus(status) in TERMINAL_STATUSES
     except ValueError:
         return False
-

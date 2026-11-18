@@ -117,9 +117,7 @@ def test_mock_provider_synchronous_generate() -> None:
     assert response.provider == "mock"
     assert response.usage.prompt_tokens > 0
     assert response.usage.completion_tokens > 0
-    expected_tokens = (
-        response.usage.prompt_tokens + response.usage.completion_tokens
-    )
+    expected_tokens = response.usage.prompt_tokens + response.usage.completion_tokens
     assert response.usage.total_tokens == expected_tokens
     assert len(provider.recorded_calls) == 1
 
@@ -327,4 +325,3 @@ async def test_local_provider_health_check_offline() -> None:
     )
     healthy = await provider.health_check()
     assert healthy is False
-

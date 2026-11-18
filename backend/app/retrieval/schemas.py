@@ -26,6 +26,10 @@ class RetrievalRequest(BaseModel):
         ge=1,
         le=MAX_SEARCH_LIMIT,
     )
+    case_id: uuid.UUID | None = Field(
+        default=None,
+        description="Optional case ID to scope retrieval to a specific case context.",
+    )
 
     model_config = ConfigDict(extra="forbid")
 

@@ -155,6 +155,8 @@ class AuditEvent(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     actor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     case_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("cases.id"))
+    request_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("requests.id"))
+    workflow_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("workflows.id"))
     action: Mapped[str]
     before: Mapped[dict | None] = mapped_column(JSONB)
     after: Mapped[dict | None] = mapped_column(JSONB)

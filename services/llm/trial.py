@@ -403,11 +403,11 @@ def format_trial_summary(results: list[TrialResult]) -> str:
             if r.metrics.time_to_first_token_ms is not None
         ]
         mean_ttft = sum(valid_ttfts) / len(valid_ttfts) if valid_ttfts else 0.0
-        mean_total = (
-            sum(r.metrics.total_latency_ms for r in successful) / len(successful)
+        mean_total = sum(r.metrics.total_latency_ms for r in successful) / len(
+            successful
         )
-        mean_tps = (
-            sum(r.metrics.tokens_per_second for r in successful) / len(successful)
+        mean_tps = sum(r.metrics.tokens_per_second for r in successful) / len(
+            successful
         )
         lines.append(
             f"Summary ({len(successful)}/{len(results)} passed): "

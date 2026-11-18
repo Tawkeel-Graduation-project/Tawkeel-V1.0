@@ -4,10 +4,12 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
-from app.db.models import AuditEvent, Workflow
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.db.models import Workflow
+from services.audit.actions import AuditAction
+from services.audit.service import log_event
 from services.workflows.states import (
     InvalidTransitionError,
     WorkflowKind,
@@ -83,14 +85,14 @@ def transition(
             target,
         )
         if actor_id is not None:
-            session.add(
-                AuditEvent(
-                    actor_id=actor_id,
-                    case_id=run.case_id,
-                    action="workflow.invalid_transition",
-                    before={"run_id": str(run.id), "status": current},
-                    after={"attempted_status": str(target)},
-                )
+            log_event(
+                session,
+                actor_id=actor_id,
+                action=AuditAction.WORKFLOW_INVALID_TRANSITION,
+                case_id=run.case_id,
+                workflow_id=run.id,
+                before={"run_id": str(run.id), "status": current},
+                after={"attempted_status": str(target)},
             )
             session.commit()
         else:
@@ -110,6 +112,18 @@ def transition(
 
     run.status = WorkflowStatus(target).value
     run.state = state  # a new dict, so SQLAlchemy tracks the change
+
+    if actor_id is not None:
+        log_event(
+            session,
+            actor_id=actor_id,
+            action=AuditAction.WORKFLOW_TRANSITION,
+            case_id=run.case_id,
+            workflow_id=run.id,
+            before={"status": current},
+            after={"status": run.status},
+        )
+
     session.commit()
     session.refresh(run)
     return run

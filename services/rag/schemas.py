@@ -18,6 +18,13 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
+def _reject_nul(value: str) -> str:
+    """PostgreSQL text and JSONB cannot store NUL, so reject it at the boundary."""
+    if "\x00" in value:
+        raise ValueError("text must not contain NUL characters")
+    return value
+
+
 class AnswerStatus(StrEnum):
     """What kind of answer the model produced."""
 
@@ -39,7 +46,12 @@ class Claim(BaseModel):
     def text_not_blank(cls, value: str) -> str:
         if not value.strip():
             raise ValueError("claim text must not be blank")
-        return value
+        return _reject_nul(value)
+
+    @field_validator("source_ids")
+    @classmethod
+    def source_ids_without_nul(cls, value: list[str]) -> list[str]:
+        return [_reject_nul(source_id) for source_id in value]
 
 
 class LegalAnswer(BaseModel):
@@ -50,6 +62,11 @@ class LegalAnswer(BaseModel):
     clarification_question: str | None = None
 
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+    @field_validator("clarification_question")
+    @classmethod
+    def clarification_without_nul(cls, value: str | None) -> str | None:
+        return None if value is None else _reject_nul(value)
 
     @model_validator(mode="after")
     def check_status_consistency(self) -> "LegalAnswer":

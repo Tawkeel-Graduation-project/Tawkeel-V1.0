@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -105,8 +106,29 @@ def _truncate(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 3] + "..."
 
 
+class _DuplicateKeyError(ValueError):
+    """An object in the output repeats a key (JSON would silently keep the last)."""
+
+
 def _reject_non_finite(constant: str) -> Any:
     raise ValueError(f"non-standard JSON constant: {constant}")
+
+
+def _finite_float(literal: str) -> float:
+    """Parse a JSON number, rejecting values that overflow to infinity (``1e999``)."""
+    value = float(literal)
+    if not math.isfinite(value):
+        raise ValueError("non-finite JSON number")
+    return value
+
+
+def _unique_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise _DuplicateKeyError("duplicate JSON object key")
+        result[key] = value
+    return result
 
 
 def parse_json_output(raw: str) -> Any:
@@ -122,14 +144,31 @@ def parse_json_output(raw: str) -> Any:
     if not text:
         raise OutputValidationError(FailureKind.INVALID_JSON, ["Output was empty."])
     try:
-        return json.loads(text, parse_constant=_reject_non_finite)
+        return json.loads(
+            text,
+            parse_constant=_reject_non_finite,
+            parse_float=_finite_float,
+            object_pairs_hook=_unique_keys,
+        )
     except json.JSONDecodeError as exc:
         error = f"Output is not valid JSON: {exc.msg} (line {exc.lineno}, column "
         error += f"{exc.colno})."
         raise OutputValidationError(FailureKind.INVALID_JSON, [error]) from exc
-    except ValueError as exc:
+    except _DuplicateKeyError as exc:
+        # The key itself is not echoed: it is model output.
         raise OutputValidationError(
-            FailureKind.INVALID_JSON, ["Output uses NaN or Infinity, not valid JSON."]
+            FailureKind.INVALID_JSON, ["Output JSON repeats a key in an object."]
+        ) from exc
+    except ValueError as exc:
+        # NaN/Infinity constants, numbers that overflow to infinity, or integers
+        # too long for Python to convert.
+        raise OutputValidationError(
+            FailureKind.INVALID_JSON,
+            ["Output contains NaN, Infinity, or an out-of-range number."],
+        ) from exc
+    except RecursionError as exc:
+        raise OutputValidationError(
+            FailureKind.INVALID_JSON, ["Output JSON is nested too deeply."]
         ) from exc
 
 

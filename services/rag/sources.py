@@ -13,6 +13,7 @@ with long contexts and many labels, so 8 is the default ceiling.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from collections.abc import Iterable
 from datetime import date
@@ -20,6 +21,8 @@ from enum import StrEnum
 from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict
+
+logger = logging.getLogger(__name__)
 
 MAX_SOURCES = 8
 LABEL_PREFIX = "S"
@@ -94,6 +97,12 @@ def _to_source_chunk(item: Any) -> SourceChunk:
     return SourceChunk.from_legal_chunk(item)
 
 
+def _row_id(item: Any) -> Any:
+    """Best-effort chunk id of a row that failed conversion, for logging only."""
+    row = item[0] if isinstance(item, tuple) and item else item
+    return getattr(row, "id", None)
+
+
 class SourceContext(BaseModel):
     """Labelled sources in retrieval order. Build it with ``from_chunks``."""
 
@@ -112,14 +121,25 @@ class SourceContext(BaseModel):
 
         Accepts ``SourceChunk`` objects, ``LegalChunk`` rows, or the
         ``(LegalChunk, distance)`` tuples returned by ``search_legal_chunks``.
-        Input order is treated as rank order.
+        Input order is treated as rank order. A row that cannot be converted
+        (for example an unknown ``source_type``) is skipped with a warning that
+        names only its chunk id, so one bad row never fails the whole request.
+        Constructing ``SourceChunk`` directly stays strict.
         """
         if max_sources < 1:
             raise ValueError("max_sources must be at least 1")
         seen: set[uuid.UUID] = set()
         labelled: list[LabeledSource] = []
         for item in chunks:
-            chunk = _to_source_chunk(item)
+            try:
+                chunk = _to_source_chunk(item)
+            except (ValueError, TypeError, AttributeError) as exc:
+                logger.warning(
+                    "Skipping invalid source row chunk_id=%s (%s)",
+                    _row_id(item),
+                    type(exc).__name__,
+                )
+                continue
             if chunk.chunk_id in seen:
                 continue
             seen.add(chunk.chunk_id)

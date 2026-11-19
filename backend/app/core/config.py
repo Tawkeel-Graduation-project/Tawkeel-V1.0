@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     llm_temperature: float = Field(default=0.2, ge=0.0, le=2.0)
     llm_timeout_seconds: float = Field(default=60.0, ge=1.0, le=600.0)
 
+    # RAG answer chain. rag_top_k is bounded by the retrieval limit (50); at most
+    # 8 sources reach the model. rag_max_distance is a cosine distance (0 to 2);
+    # None keeps every retrieved result until a threshold is measured.
+    rag_top_k: int = Field(default=8, ge=1, le=50)
+    rag_max_distance: float | None = Field(default=None, ge=0.0, le=2.0)
+
     model_config = SettingsConfigDict(
         env_file=REPOSITORY_ROOT / ".env",
         env_file_encoding="utf-8",

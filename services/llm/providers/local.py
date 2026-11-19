@@ -122,6 +122,15 @@ class LocalLLMProvider(BaseLLMProvider):
             raise ProviderUnavailableError(
                 f"Could not connect to local LLM provider at {self.api_base}: {exc}"
             ) from exc
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise LLMProviderError(
+                "Local LLM provider returned a malformed (non-JSON) response body"
+            ) from exc
+
+        if not isinstance(body, dict):
+            raise LLMProviderError(
+                "Local LLM provider returned an unexpected response body"
+            )
 
         choices = body.get("choices", [])
         if not choices:

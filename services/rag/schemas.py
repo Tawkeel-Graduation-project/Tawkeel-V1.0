@@ -11,11 +11,21 @@ claim cites those labels in ``source_ids``. Short labels are easier for small
 local models to copy correctly than database UUIDs; the caller maps them back to
 ``legal_chunks`` rows and rejects labels that were not in the context (via a
 semantic validator). This module does not check that a label exists.
+
+``GroundedAnswer`` (with ``GroundedClaim`` and ``Citation``) is the result of
+``services.rag.citations.ground_answer``: the validated model answer with each
+claim marked supported or unsupported and citations attached. It is also an
+internal shape, uses snake_case, and the same ``source_type`` values as the
+database (``law`` | ``ruling``).
 """
 
+import uuid
+from datetime import date
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from services.rag.sources import SourceType
 
 
 def _reject_nul(value: str) -> str:
@@ -86,4 +96,80 @@ class LegalAnswer(BaseModel):
             )
         if self.status == AnswerStatus.NO_SOURCE and self.claims:
             raise ValueError("no_source must not include claims")
+        return self
+
+
+class UnsupportedReason(StrEnum):
+    """Why a claim is not treated as backed by its cited sources."""
+
+    NO_SOURCE_CITED = "no_source_cited"
+    ARTICLE_MISMATCH = "article_mismatch"
+
+
+class GroundedClaim(BaseModel):
+    """A claim with its known source labels and whether the sources back it."""
+
+    text: str
+    source_ids: list[str] = Field(default_factory=list)
+    supported: bool
+    unsupported_reason: UnsupportedReason | None = None
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    @model_validator(mode="after")
+    def check_reason(self) -> "GroundedClaim":
+        if self.supported and self.unsupported_reason is not None:
+            raise ValueError("a supported claim has no unsupported_reason")
+        if not self.supported and self.unsupported_reason is None:
+            raise ValueError("an unsupported claim needs an unsupported_reason")
+        return self
+
+
+class Citation(BaseModel):
+    """A cited source, with a short excerpt of its text for display."""
+
+    label: str
+    chunk_id: uuid.UUID
+    source_type: SourceType
+    source_name: str
+    article_number: str | None = None
+    source_date: date | None = None
+    url: str | None = None
+    excerpt: str
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class GroundedAnswer(BaseModel):
+    """A legal answer whose claims are marked and whose citations are attached.
+
+    ``citations`` lists only sources cited by supported claims, in the order they
+    are first cited. Unsupported claims stay in ``claims`` with a reason.
+    """
+
+    status: AnswerStatus
+    claims: list[GroundedClaim] = Field(default_factory=list)
+    citations: list[Citation] = Field(default_factory=list)
+    clarification_question: str | None = None
+    has_unsupported_claims: bool = False
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    @model_validator(mode="after")
+    def check_consistency(self) -> "GroundedAnswer":
+        if self.has_unsupported_claims != any(not c.supported for c in self.claims):
+            raise ValueError("has_unsupported_claims must match the claims")
+        if self.status == AnswerStatus.ANSWERED:
+            if not any(claim.supported for claim in self.claims):
+                raise ValueError("an answered answer needs a supported claim")
+            if not self.citations:
+                raise ValueError("an answered answer needs at least one citation")
+        elif self.claims or self.citations:
+            raise ValueError(f"{self.status} must not include claims or citations")
+        if (self.status == AnswerStatus.NEEDS_CLARIFICATION) != (
+            self.clarification_question is not None
+        ):
+            raise ValueError(
+                "clarification_question is set only with needs_clarification"
+            )
         return self

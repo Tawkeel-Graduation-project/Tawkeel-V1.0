@@ -1,5 +1,47 @@
-"""Retrieval-augmented legal answering: schemas for grounded, cited answers."""
+"""Retrieval-augmented legal answering: grounded, cited answers."""
 
-from services.rag.schemas import AnswerStatus, Claim, LegalAnswer
+from services.rag.citations import (
+    EXCERPT_MAX_CHARS,
+    ground_answer,
+    make_excerpt,
+    make_source_validator,
+    mentioned_articles,
+    normalize_digits,
+)
+from services.rag.schemas import (
+    AnswerStatus,
+    Citation,
+    Claim,
+    GroundedAnswer,
+    GroundedClaim,
+    LegalAnswer,
+    UnsupportedReason,
+)
+from services.rag.sources import (
+    MAX_SOURCES,
+    LabeledSource,
+    SourceChunk,
+    SourceContext,
+    SourceType,
+)
 
-__all__ = ["AnswerStatus", "Claim", "LegalAnswer"]
+__all__ = [
+    "EXCERPT_MAX_CHARS",
+    "MAX_SOURCES",
+    "AnswerStatus",
+    "Citation",
+    "Claim",
+    "GroundedAnswer",
+    "GroundedClaim",
+    "LabeledSource",
+    "LegalAnswer",
+    "SourceChunk",
+    "SourceContext",
+    "SourceType",
+    "UnsupportedReason",
+    "ground_answer",
+    "make_excerpt",
+    "make_source_validator",
+    "mentioned_articles",
+    "normalize_digits",
+]

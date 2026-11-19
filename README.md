@@ -16,8 +16,8 @@ backend/
   pyproject.toml
   uv.lock
   .python-version
-  Dockerfile
-  .dockerignore
+  Dockerfile    # built with the repository root as context (see .dockerignore)
+services/       # Shared LLM, workflow, and audit packages imported by the backend
 frontend/
   src/
     app/        # Next.js App Router (auth, client & lawyer portals, UI catalog)
@@ -30,6 +30,7 @@ frontend/
 .github/workflows/ci.yml
 .env.example
 docker-compose.yml
+.dockerignore
 .gitignore
 README.md
 context.md
@@ -115,8 +116,8 @@ Unit tests do not require PostgreSQL. Database integration tests require a migra
 ```sh
 cd backend
 uv run pytest -q
-uv run ruff check .
-uv run ruff format --check .
+uv run ruff check --config pyproject.toml . ../services
+uv run ruff format --check --config pyproject.toml . ../services
 ```
 
 With a test database available, migrate it and set the test URL before running pytest:

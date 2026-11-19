@@ -1,0 +1,11 @@
+# The backend image is built with the repository root as its context so that
+# both backend/ and services/ are available. Send only what the image needs;
+# secrets (.env, .aws), frontend, docs, and tests stay out of the context.
+*
+!backend/pyproject.toml
+!backend/uv.lock
+!backend/.python-version
+!backend/app/
+!services/
+**/__pycache__
+**/*.py[cod]

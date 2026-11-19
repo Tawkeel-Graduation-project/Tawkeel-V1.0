@@ -8,15 +8,18 @@ ENV UV_COMPILE_BYTECODE=1 \
 WORKDIR /app
 
 COPY --from=uv /uv /uvx /bin/
-COPY pyproject.toml uv.lock .python-version ./
+# Build context is the repository root (see docker-compose.yml and CI).
+COPY backend/pyproject.toml backend/uv.lock backend/.python-version ./
 
 RUN uv sync --locked --no-dev --no-install-project
 
-COPY app ./app
+COPY backend/app ./app
+COPY services ./services
 
 FROM python:3.12-slim AS runtime
 
 ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONPATH=/app \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
@@ -28,6 +31,7 @@ RUN groupadd --system --gid 10001 app \
 
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 COPY --from=builder --chown=app:app /app/app /app/app
+COPY --from=builder --chown=app:app /app/services /app/services
 
 USER app
 

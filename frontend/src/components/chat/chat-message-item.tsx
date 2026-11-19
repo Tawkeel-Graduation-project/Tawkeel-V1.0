@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { BookOpen, Check, Copy, Scale, User } from "lucide-react";
+import { AlertTriangle, BookOpen, Check, Copy, Scale, User } from "lucide-react";
 import type { ChatMessage, Citation } from "@/lib/chat/types";
 import { cn } from "@/lib/cn";
+import { chatNoticeCopy } from "@/lib/errors";
 import { formatTime } from "@/lib/format";
 import { CitationChip } from "./citation-chip";
 import { ChatErrorMessage } from "./chat-error-message";
@@ -28,7 +29,9 @@ export function ChatMessageItem({
 
   async function handleCopy() {
     try {
-      await navigator.clipboard.writeText(message.content);
+      await navigator.clipboard.writeText(
+        message.content || (message.claims ?? []).map((claim) => claim.text).join("\n"),
+      );
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -57,6 +60,11 @@ export function ChatMessageItem({
 
   const citations = message.citations ?? [];
   const hasCitations = citations.length > 0;
+  const claims = message.claims ?? [];
+  const hasUnsupportedClaims =
+    message.hasUnsupportedClaims ?? claims.some((claim) => claim.supported === false);
+  const needsClarification =
+    message.notice?.kind === "clarification" || Boolean(message.clarificationQuestion);
 
   // Assistant message
   return (
@@ -81,6 +89,10 @@ export function ChatMessageItem({
             <span className="inline-flex items-center gap-1 rounded-full bg-warning-soft px-2 py-0.5 text-[10px] font-medium text-warning">
               توجيه قانوني
             </span>
+          ) : needsClarification ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-info-soft px-2 py-0.5 text-[10px] font-medium text-info">
+              طلب توضيح
+            </span>
           ) : (
             <span className="text-[11px] text-muted">{formatTime(message.createdAt)}</span>
           )}
@@ -91,7 +103,9 @@ export function ChatMessageItem({
           <div className="w-full">
             <ChatErrorMessage
               type={message.errorType ?? "general"}
-              errorMessage={message.errorMessage}
+              errorMessage={message.errorMessage ?? message.notice?.message}
+              retryable={message.notice?.retryable}
+              showLawyerCta={message.notice?.showLawyerCta}
               onRetry={onRetry}
             />
           </div>
@@ -103,11 +117,51 @@ export function ChatMessageItem({
               onRephrase={onRephrase}
             />
           </div>
+        ) : needsClarification ? (
+          <div className="w-full">
+            <ChatErrorMessage
+              type="clarification"
+              errorMessage={message.notice?.message}
+              clarificationQuestion={message.clarificationQuestion}
+            />
+          </div>
         ) : (
           /* Standard formatted legal response */
           <div className="w-full rounded-2xl rounded-tr-xs border border-border bg-surface px-4 py-3.5 shadow-xs">
+            {hasUnsupportedClaims && message.status !== "streaming" ? (
+              <div
+                role="note"
+                className="mb-3 flex items-start gap-2 rounded-xl border border-warning/30 bg-warning-soft/50 px-3 py-2 text-xs text-foreground"
+              >
+                <AlertTriangle aria-hidden className="mt-0.5 size-3.5 shrink-0 text-warning" />
+                <span className="leading-relaxed">
+                  {message.notice?.message ?? chatNoticeCopy.unsupported_claims.description}
+                </span>
+              </div>
+            ) : null}
+
             <div className="space-y-3 text-sm leading-relaxed text-foreground">
-              {message.content.split("\n\n").map((paragraph, idx) => {
+              {claims.length > 0 ? (
+                <ul className="space-y-2">
+                  {claims.map((claim, idx) => (
+                    <li key={idx} className="whitespace-pre-wrap">
+                      <span className={claim.supported === false ? "text-foreground/80" : undefined}>
+                        {claim.text}
+                      </span>
+                      {claim.supported === false ? (
+                        <span
+                          title="هذه العبارة غير مدعومة بسند من المصادر المعروضة"
+                          className="ms-1.5 inline-flex items-center gap-0.5 rounded-full bg-warning-soft px-1.5 py-0.5 align-middle text-[10px] font-medium text-warning"
+                        >
+                          <AlertTriangle aria-hidden className="size-3" />
+                          <span>غير موثّقة</span>
+                        </span>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {(claims.length > 0 ? [] : message.content.split("\n\n")).map((paragraph, idx) => {
                 if (paragraph.startsWith("> ")) {
                   return (
                     <div
@@ -160,7 +214,7 @@ export function ChatMessageItem({
             ) : null}
 
             {/* Action footer: Copy & Metadata */}
-            {message.status !== "streaming" && message.content ? (
+            {message.status !== "streaming" && (message.content || claims.length > 0) ? (
               <div className="mt-3.5 flex items-center justify-between border-t border-border/60 pt-2.5">
                 <div className="flex items-center gap-2">
                   <button

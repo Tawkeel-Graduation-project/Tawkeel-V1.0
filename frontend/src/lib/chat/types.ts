@@ -8,6 +8,41 @@ export interface Citation {
   url?: string;
 }
 
+/**
+ * Reply kinds sent by the backend (`services/rag/presenter.py`, `ReplyKind`).
+ * Keep in sync: the frontend relies on these exact codes.
+ */
+export type ChatReplyKind =
+  | "answered"
+  | "clarification"
+  | "no_source"
+  | "invalid_question"
+  | "temporarily_unavailable"
+  | "answer_failed";
+
+/** Failure kinds shown with <ChatErrorMessage />. "network"/"general" are client-side. */
+export type ChatErrorType =
+  | "network"
+  | "general"
+  | "invalid_question"
+  | "temporarily_unavailable"
+  | "answer_failed";
+
+/** A notice attached to a reply (backend `UserNotice`, camelCased). */
+export interface ChatNotice {
+  kind: ChatReplyKind;
+  message?: string;
+  retryable?: boolean;
+  showLawyerCta?: boolean;
+}
+
+/** One statement of an answer; `supported: false` means no source backs it. */
+export interface ChatClaim {
+  text: string;
+  sourceIds?: string[];
+  supported?: boolean;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -16,8 +51,13 @@ export interface ChatMessage {
   createdAt: number;
   status?: "complete" | "streaming" | "error";
   hasNoSource?: boolean;
-  errorType?: "network" | "general";
+  errorType?: ChatErrorType;
   errorMessage?: string;
+  /** When present, rendered one per line instead of `content`. */
+  claims?: ChatClaim[];
+  hasUnsupportedClaims?: boolean;
+  clarificationQuestion?: string;
+  notice?: ChatNotice;
 }
 
 export type ChatStatus = "idle" | "loading" | "streaming" | "error";

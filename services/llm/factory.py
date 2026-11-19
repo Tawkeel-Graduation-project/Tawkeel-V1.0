@@ -59,7 +59,7 @@ def _build_local_provider(settings: Any) -> BaseLLMProvider:
     else:
         api_key = None
 
-    timeout = getattr(settings, "llm_timeout_seconds", 60.0)
+    timeout = getattr(settings, "llm_timeout_seconds", 120.0)
     provider_name = getattr(settings, "llm_provider", "local").strip().lower()
 
     return LocalLLMProvider(

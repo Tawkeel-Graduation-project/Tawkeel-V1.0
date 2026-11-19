@@ -30,7 +30,7 @@ class LocalLLMProvider(BaseLLMProvider):
         model_name: str = "qwen2.5:7b",
         api_base: str = "http://localhost:11434",
         api_key: str | None = None,
-        timeout: float = 60.0,
+        timeout: float = 120.0,
         provider_name: str = "local",
     ) -> None:
         self._model_name = model_name

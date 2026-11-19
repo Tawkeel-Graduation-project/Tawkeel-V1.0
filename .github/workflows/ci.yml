@@ -43,10 +43,12 @@ jobs:
         run: uv lock --check
       - name: Sync dependencies
         run: uv sync --locked
+      # services/ lives outside backend/, so pass it explicitly and pin the
+      # backend ruff config so both trees use the same rules.
       - name: Lint
-        run: uv run ruff check .
+        run: uv run ruff check --config pyproject.toml . ../services
       - name: Check formatting
-        run: uv run ruff format --check .
+        run: uv run ruff format --check --config pyproject.toml . ../services
       - name: Run database migrations
         env:
           DATABASE_URL: postgresql://test_user:test_password@localhost:5432/tawkeel_test
@@ -63,4 +65,4 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
       - name: Build app image
-        run: docker build --tag tawkeel-backend:ci ./backend
+        run: docker build --file backend/Dockerfile --tag tawkeel-backend:ci .

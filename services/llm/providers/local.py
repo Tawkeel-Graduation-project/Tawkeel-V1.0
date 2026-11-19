@@ -30,7 +30,7 @@ class LocalLLMProvider(BaseLLMProvider):
         model_name: str = "qwen2.5:7b",
         api_base: str = "http://localhost:11434",
         api_key: str | None = None,
-        timeout: float = 60.0,
+        timeout: float = 120.0,
         provider_name: str = "local",
     ) -> None:
         self._model_name = model_name
@@ -122,6 +122,15 @@ class LocalLLMProvider(BaseLLMProvider):
             raise ProviderUnavailableError(
                 f"Could not connect to local LLM provider at {self.api_base}: {exc}"
             ) from exc
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise LLMProviderError(
+                "Local LLM provider returned a malformed (non-JSON) response body"
+            ) from exc
+
+        if not isinstance(body, dict):
+            raise LLMProviderError(
+                "Local LLM provider returned an unexpected response body"
+            )
 
         choices = body.get("choices", [])
         if not choices:

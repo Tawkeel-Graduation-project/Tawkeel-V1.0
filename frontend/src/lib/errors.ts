@@ -71,6 +71,58 @@ export const errorCopy: Record<AppErrorKind, { title: string; description: strin
   },
 };
 
+/**
+ * Copy for legal-assistant reply notices (chat). Kinds match the backend
+ * `ReplyKind` codes, plus "unsupported_claims" for answers with statements
+ * that no source backs. A `message_ar` from the backend, when present,
+ * replaces `description`.
+ */
+export type ChatNoticeCopyKind =
+  | "clarification"
+  | "no_source"
+  | "invalid_question"
+  | "temporarily_unavailable"
+  | "answer_failed"
+  | "unsupported_claims";
+
+export const chatNoticeCopy: Record<ChatNoticeCopyKind, { title: string; description: string }> = {
+  clarification: {
+    title: "نحتاج إلى توضيح",
+    description: "لنتمكن من الإجابة بدقة، نحتاج إلى توضيح بسيط منك.",
+  },
+  no_source: {
+    title: "لم يُعثر على سند قانوني مؤكد لهذا الاستفسار",
+    description:
+      "لم يُعثر على سند قانوني مؤكد لهذا الاستفسار. يمكنك إعادة صياغة السؤال أو طلب استشارة محامٍ متخصص.",
+  },
+  invalid_question: {
+    title: "تعذّر قراءة السؤال",
+    description: "تعذّر قراءة السؤال. يرجى كتابة سؤالك القانوني بوضوح وباختصار ثم المحاولة مرة أخرى.",
+  },
+  temporarily_unavailable: {
+    title: "المساعد القانوني غير متاح مؤقتاً",
+    description: "المساعد القانوني غير متاح مؤقتاً. حاول مرة أخرى بعد قليل، أو اطلب استشارة محامٍ متخصص.",
+  },
+  answer_failed: {
+    title: "حدث خطأ أثناء صياغة الإجابة",
+    description: "تعذّر صياغة إجابة موثّقة لهذا السؤال. حاول مرة أخرى، أو اطلب استشارة محامٍ متخصص.",
+  },
+  unsupported_claims: {
+    title: "عبارات غير موثّقة",
+    description: "بعض العبارات في هذه الإجابة غير مدعومة بسند من المصادر المعروضة، فيرجى التعامل معها بحذر.",
+  },
+};
+
+/** Default actions per failure kind, mirroring the backend table. */
+export const chatNoticeActions: Record<
+  "invalid_question" | "temporarily_unavailable" | "answer_failed",
+  { retryable: boolean; showLawyerCta: boolean }
+> = {
+  invalid_question: { retryable: true, showLawyerCta: false },
+  temporarily_unavailable: { retryable: true, showLawyerCta: true },
+  answer_failed: { retryable: true, showLawyerCta: true },
+};
+
 /** Normalise anything thrown into an error kind. */
 export function getErrorKind(error: unknown): AppErrorKind {
   if (error instanceof AppError) return error.kind;

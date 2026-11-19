@@ -2,7 +2,9 @@
 
 from services.rag.citations import (
     EXCERPT_MAX_CHARS,
+    MIN_ARABIC_LETTER_RATIO,
     ground_answer,
+    language_problem,
     make_excerpt,
     make_source_validator,
     mentioned_articles,
@@ -28,6 +30,7 @@ from services.rag.sources import (
 __all__ = [
     "EXCERPT_MAX_CHARS",
     "MAX_SOURCES",
+    "MIN_ARABIC_LETTER_RATIO",
     "AnswerStatus",
     "Citation",
     "Claim",
@@ -40,6 +43,7 @@ __all__ = [
     "SourceType",
     "UnsupportedReason",
     "ground_answer",
+    "language_problem",
     "make_excerpt",
     "make_source_validator",
     "mentioned_articles",

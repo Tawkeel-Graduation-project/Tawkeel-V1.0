@@ -11,6 +11,7 @@ from services.llm import LLMMessage, MockLLMProvider, generate_structured
 from services.rag import (
     EXCERPT_MAX_CHARS,
     MAX_SOURCES,
+    MIN_ARABIC_LETTER_RATIO,
     AnswerStatus,
     Claim,
     GroundedAnswer,
@@ -20,6 +21,7 @@ from services.rag import (
     SourceType,
     UnsupportedReason,
     ground_answer,
+    language_problem,
     make_excerpt,
     make_source_validator,
     mentioned_articles,
@@ -440,3 +442,132 @@ async def test_unknown_id_is_repaired_then_grounded(context: SourceContext) -> N
     assert grounded.status == AnswerStatus.ANSWERED
     assert grounded.claims[0].supported
     assert [c.label for c in grounded.citations] == ["S1"]
+
+
+# --- Arabic-language guard -------------------------------------------------------
+
+CHINESE_TAIL = "هل تعني أنك تريد معرفة كيفية إثبات عقد العمل即使翻译成中文如下"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "مهلة الإخطار شهران وفقاً للمادة 111.",
+        "يستحق العامل الأجر كاملاً وفقاً للمصدر S1.",
+        "لا يجوز الخصم بأكثر من (10%) طبقاً لقانون العمل رقم 12 لسنة 2003.",
+        "مدة الإجازة ٢١ يوماً وفقاً للمادة ٤٧.",
+        "تنص المادة ۴۷ على إجازة سنوية مدتها ۲۱ يوماً.",
+        "وفقاً لـ Egyptian Labor Law 12-2003 فإن مدة الاختبار لا تزيد على ثلاثة أشهر.",
+        "مُدَّةُ الاخْتِبَارِ ثَلاثَةُ أَشْهُرٍ.",
+    ],
+    ids=[
+        "plain",
+        "latin-label",
+        "latin-digits-percent",
+        "arabic-indic-digits",
+        "extended-arabic-indic",
+        "short-latin-law-name",
+        "diacritics",
+    ],
+)
+def test_language_problem_accepts_arabic(text: str) -> None:
+    assert language_problem(text) is None
+
+
+@pytest.mark.parametrize(
+    ("text", "reason"),
+    [
+        (CHINESE_TAIL, "non-Arabic script"),
+        ("مدة الاختبار три месяца فقط.", "non-Arabic script"),
+        ("The probation period may not exceed three months.", "no Arabic"),
+        ("The probation period may not exceed three months وفقاً للمادة 33.", "mostly"),
+        ("123 (10%) S1", "no Arabic"),
+        ("مدة الاختبار ثلاثة أشهر Ωμέγα", "non-Arabic script"),
+    ],
+    ids=[
+        "chinese-mid-sentence",
+        "cyrillic",
+        "english",
+        "mostly-english",
+        "no-letters-arabic",
+        "greek",
+    ],
+)
+def test_language_problem_rejects_non_arabic(text: str, reason: str) -> None:
+    problem = language_problem(text)
+    assert problem is not None and reason in problem
+
+
+def test_arabic_ratio_threshold_is_documented() -> None:
+    assert 0 < MIN_ARABIC_LETTER_RATIO <= 1
+
+
+def test_validator_rejects_non_arabic_claim_without_echoing_it(
+    context: SourceContext,
+) -> None:
+    answer = _answer(("مهلة الإخطار شهران.", ["S1"]), ("Notice is два months.", ["S1"]))
+    errors = make_source_validator(context)(answer)
+    assert len(errors) == 1
+    assert errors[0].startswith("claims.1.text:")
+    assert "Arabic" in errors[0]
+    assert "Notice" not in errors[0] and "два" not in errors[0]
+
+
+def test_validator_rejects_non_arabic_clarification_question() -> None:
+    answer = LegalAnswer(
+        status=AnswerStatus.NEEDS_CLARIFICATION, clarification_question=CHINESE_TAIL
+    )
+    errors = make_source_validator(SourceContext.from_chunks([]))(answer)
+    assert len(errors) == 1
+    assert errors[0].startswith("clarification_question:")
+    assert "中" not in errors[0] and "تعني" not in errors[0]
+
+
+def _clarification_json(question: str) -> str:
+    return json.dumps(
+        {"status": "needs_clarification", "clarification_question": question},
+        ensure_ascii=False,
+    )
+
+
+@pytest.mark.anyio
+async def test_non_arabic_output_is_repaired(context: SourceContext) -> None:
+    provider = MockLLMProvider(
+        response_sequence=[
+            _clarification_json(CHINESE_TAIL),
+            _clarification_json("هل أنت في فترة الاختبار؟"),
+        ]
+    )
+    result = await generate_structured(
+        provider,
+        [LLMMessage.user("ينفع يمشوني؟")],
+        LegalAnswer,
+        semantic_validator=make_source_validator(context),
+    )
+    assert result.ok and result.attempts == 2
+    repair_request = provider.recorded_calls[1][-1].content
+    assert "clarification_question: contains letters from a non-Arabic script" in (
+        repair_request
+    )
+    assert "中" not in repair_request
+
+
+@pytest.mark.anyio
+async def test_non_arabic_output_twice_falls_back_to_answer_failed(
+    context: SourceContext,
+) -> None:
+    from services.rag.chain import AnswerFailure, answer_from_sources
+    from services.rag.presenter import ReplyKind, present_outcome
+
+    provider = MockLLMProvider(
+        response_sequence=[_clarification_json(CHINESE_TAIL)] * 2
+    )
+    outcome = await answer_from_sources(
+        "ينفع يمشوني؟", [_chunk("33"), _chunk("110")], provider=provider
+    )
+    assert not outcome.ok
+    assert outcome.failure == AnswerFailure.SEMANTIC_INVALID
+    assert outcome.attempts == 2
+    reply = present_outcome(outcome)
+    assert reply.kind == ReplyKind.ANSWER_FAILED
+    assert "中" not in reply.model_dump_json()

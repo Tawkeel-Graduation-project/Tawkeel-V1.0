@@ -12,12 +12,16 @@ A claim is unsupported when it cites no known source, or when it names an
 article ("مادة 69", "المادة ١١١", "للمادة (47)") whose number is not the
 ``article_number`` of any source it cites. Only the singular forms مادة/ماده are
 recognised; dual and plural forms (المادتين، المواد) are not checked.
+
+The validator also rejects claim text and ``clarification_question`` that are
+not Arabic (see ``language_problem``), since that text is shown to the user.
 """
 
 from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 from collections.abc import Callable
 
 from services.rag.schemas import (
@@ -41,6 +45,41 @@ _DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890
 _DIACRITICS_RE = re.compile(r"[ً-ْٰـ]")
 _ARTICLE_RE = re.compile(r"ماد[ةه]\s*(?:رقم\s*)?[(\[]?\s*(\d+)")
 _LEADING_NUMBER_RE = re.compile(r"\d+")
+
+# Of all letters in a text, at least this share must be Arabic. Latin letters
+# are allowed only for short tokens such as source labels ("S1") or law names;
+# letters of any other script (CJK, Cyrillic, ...) are always rejected.
+# Digits (Western or Arabic-Indic), punctuation, and diacritics are not letters.
+MIN_ARABIC_LETTER_RATIO = 0.7
+
+
+def _letter_script(char: str) -> str:
+    """'arabic', 'latin', or 'other' for a letter character."""
+    name = unicodedata.name(char, "")
+    if name.startswith("ARABIC"):
+        return "arabic"
+    if name.startswith("LATIN"):
+        return "latin"
+    return "other"
+
+
+def language_problem(text: str) -> str | None:
+    """Why ``text`` is not acceptable Arabic, or None if it is.
+
+    The reason never quotes the text, so it is safe to send back to the model.
+    """
+    counts = {"arabic": 0, "latin": 0, "other": 0}
+    for char in text:
+        if char.isalpha():
+            counts[_letter_script(char)] += 1
+    if counts["other"]:
+        return "contains letters from a non-Arabic script"
+    if counts["arabic"] == 0:
+        return "contains no Arabic text"
+    ratio = counts["arabic"] / (counts["arabic"] + counts["latin"])
+    if ratio < MIN_ARABIC_LETTER_RATIO:
+        return "is mostly in a non-Arabic language"
+    return None
 
 
 def normalize_digits(text: str) -> str:
@@ -71,8 +110,9 @@ def make_source_validator(
 ) -> Callable[[LegalAnswer], list[str]]:
     """Semantic validator for ``generate_structured`` that checks source labels.
 
-    Errors name locations only (never the model's own label text) and list the
-    allowed labels so the model can repair its answer.
+    Errors name locations only (never the model's own label or text) and list
+    the allowed labels so the model can repair its answer. Claim text and the
+    clarification question must be Arabic (``language_problem``).
     """
     allowed = ", ".join(context.labels) or "(none)"
 
@@ -80,6 +120,9 @@ def make_source_validator(
         errors: list[str] = []
         cites_known_source = False
         for i, claim in enumerate(answer.claims):
+            problem = language_problem(claim.text)
+            if problem:
+                errors.append(f"claims.{i}.text: {problem}; write it in Arabic only")
             seen: set[str] = set()
             for j, source_id in enumerate(claim.source_ids):
                 location = f"claims.{i}.source_ids.{j}"
@@ -91,6 +134,12 @@ def make_source_validator(
                     cites_known_source = True
                 else:
                     errors.append(f"{location}: unknown source id; use only: {allowed}")
+        if answer.clarification_question is not None:
+            problem = language_problem(answer.clarification_question)
+            if problem:
+                errors.append(
+                    f"clarification_question: {problem}; write it in Arabic only"
+                )
         if answer.status == AnswerStatus.ANSWERED and not cites_known_source:
             errors.append(
                 "claims: an answered answer must cite at least one source "

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, BookOpen, Check, Copy, Scale, User } from "lucide-react";
+import { AlertTriangle, BookOpen, Briefcase, Check, Copy, Scale, User } from "lucide-react";
 import type { ChatMessage, Citation } from "@/lib/chat/types";
 import { cn } from "@/lib/cn";
 import { chatNoticeCopy } from "@/lib/errors";
@@ -15,6 +15,8 @@ interface ChatMessageItemProps {
   activeCitationId?: string | null;
   onRetry?: () => void;
   onRephrase?: () => void;
+  /** When set, shows "Request a Lawyer" under this answer (SCRUM-330). */
+  onRequestLawyer?: () => void;
 }
 
 export function ChatMessageItem({
@@ -23,6 +25,7 @@ export function ChatMessageItem({
   activeCitationId,
   onRetry,
   onRephrase,
+  onRequestLawyer,
 }: ChatMessageItemProps) {
   const isUser = message.role === "user";
   const [copied, setCopied] = useState(false);
@@ -238,6 +241,19 @@ export function ChatMessageItem({
                       </>
                     )}
                   </button>
+                  {onRequestLawyer ? (
+                    <button
+                      type="button"
+                      onClick={onRequestLawyer}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-semibold text-primary transition",
+                        "hover:bg-primary-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                      )}
+                    >
+                      <Briefcase aria-hidden className="size-3.5" />
+                      <span>طلب محامٍ</span>
+                    </button>
+                  ) : null}
                 </div>
 
                 {hasCitations ? (

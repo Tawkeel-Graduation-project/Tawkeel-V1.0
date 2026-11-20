@@ -1,15 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { AlertCircle, ArrowDown, RotateCcw, Scale, WifiOff } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useRouter } from "next/navigation";
+import { AlertCircle, ArrowDown, Briefcase, RotateCcw, Scale, WifiOff } from "lucide-react";
 import type { ChatMessage, ChatStatus, Citation } from "@/lib/chat/types";
 import { streamLegalResponse } from "@/lib/chat/mock-stream";
+import { useAuth } from "@/lib/auth/auth-context";
+import { IntakeError, startIntake } from "@/lib/intake/api";
+import { intakeErrorCopy } from "@/lib/intake/copy";
 import { Button } from "@/components/ui";
 import { ChatEmptyState } from "./chat-empty-state";
 import { ChatInput } from "./chat-input";
 import { ChatMessageItem } from "./chat-message-item";
 import { ChatTypingIndicator } from "./chat-typing-indicator";
 import { DisclaimerBanner } from "./disclaimer-banner";
+import { RequestLawyerDialog } from "./request-lawyer-dialog";
 import { SourcePanel } from "./source-panel";
 
 function subscribeOnline(callback: () => void) {
@@ -29,9 +34,23 @@ function getServerSnapshot() {
   return true;
 }
 
+/** A finished assistant reply that actually answers (not an error, no-source or clarification). */
+function isAnswer(m: ChatMessage) {
+  return (
+    m.role === "assistant" &&
+    m.status === "complete" &&
+    !m.hasNoSource &&
+    m.notice?.kind !== "clarification" &&
+    !m.clarificationQuestion &&
+    (m.content.trim().length > 0 || (m.claims?.length ?? 0) > 0)
+  );
+}
+
 export function ChatScreen() {
   const isOnline = useSyncExternalStore(subscribeOnline, getSnapshot, getServerSnapshot);
   const isOffline = !isOnline;
+  const router = useRouter();
+  const { token } = useAuth();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -43,6 +62,21 @@ export function ChatScreen() {
   // Source passage panel state
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null);
   const [activeCitationsList, setActiveCitationsList] = useState<Citation[]>([]);
+
+  // "Request a Lawyer" (SCRUM-330)
+  const [requestOpen, setRequestOpen] = useState(false);
+  const [requestLoading, setRequestLoading] = useState(false);
+  const [requestError, setRequestError] = useState<string | null>(null);
+  /** Returned by the first start, so a second click reuses the same intake. */
+  const [intakeConversationId, setIntakeConversationId] = useState<string | null>(null);
+
+  const latestAnswerId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (isAnswer(messages[i])) return messages[i].id;
+    }
+    return null;
+  }, [messages]);
+  const isBusy = status === "loading" || status === "streaming";
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -212,8 +246,38 @@ export function ChatScreen() {
     [input, status, isOffline],
   );
 
+  function openRequestLawyer() {
+    setRequestError(null);
+    setRequestOpen(true);
+  }
+
+  const closeRequestLawyer = useCallback(() => {
+    setRequestOpen(false);
+    setRequestError(null);
+  }, []);
+
+  async function handleConfirmRequestLawyer() {
+    if (isOffline) {
+      setRequestError(intakeErrorCopy.network);
+      return;
+    }
+    setRequestLoading(true);
+    setRequestError(null);
+    try {
+      const intake = await startIntake({ token, conversationId: intakeConversationId, messages });
+      setIntakeConversationId(intake.conversationId);
+      router.push(`/client/requests/${intake.id}`);
+    } catch (err) {
+      const code = err instanceof IntakeError ? err.code : "unknown";
+      setRequestError(intakeErrorCopy[code]);
+    } finally {
+      setRequestLoading(false);
+    }
+  }
+
   function handleResetChat() {
     handleStopStream();
+    setIntakeConversationId(null);
     setMessages([]);
     setInput("");
     setErrorText(null);
@@ -260,14 +324,26 @@ export function ChatScreen() {
         </div>
 
         {messages.length > 0 ? (
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={handleResetChat}
-            icon={<RotateCcw aria-hidden className="size-3.5" />}
-          >
-            محادثة جديدة
-          </Button>
+          <div className="flex items-center gap-2">
+            {latestAnswerId ? (
+              <Button
+                size="sm"
+                onClick={openRequestLawyer}
+                disabled={isBusy}
+                icon={<Briefcase aria-hidden className="size-3.5" />}
+              >
+                طلب محامٍ
+              </Button>
+            ) : null}
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={handleResetChat}
+              icon={<RotateCcw aria-hidden className="size-3.5" />}
+            >
+              محادثة جديدة
+            </Button>
+          </div>
         ) : null}
       </div>
 
@@ -310,6 +386,9 @@ export function ChatScreen() {
                 onRephrase={() => {
                   setInput(lastQuery);
                 }}
+                onRequestLawyer={
+                  message.id === latestAnswerId && !isBusy ? openRequestLawyer : undefined
+                }
               />
             ))}
 
@@ -356,6 +435,14 @@ export function ChatScreen() {
           disabled={isOffline}
         />
       </div>
+
+      <RequestLawyerDialog
+        open={requestOpen}
+        loading={requestLoading}
+        error={requestError}
+        onConfirm={handleConfirmRequestLawyer}
+        onCancel={closeRequestLawyer}
+      />
 
       {/* Slide-over Source Passage Panel */}
       <SourcePanel

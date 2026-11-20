@@ -5,6 +5,9 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from services.audit.actions import AuditAction
 from services.audit.service import log_event
+from services.intake.service import IntakeTurnError, take_turn
+from services.llm.factory import get_llm_provider
+from services.llm.provider import BaseLLMProvider
 from services.workflows.intake import (
     IntakeContextError,
     SubmittedMessage,
@@ -26,8 +29,10 @@ from app.client.schemas import (
     ClientRequestResponse,
     CreateClientRequest,
     IntakeResponse,
+    IntakeTurnRequest,
     StartIntakeRequest,
 )
+from app.core.config import Settings, get_settings
 from app.db.models import Case, Conversation, Request, User, Workflow
 from app.db.session import get_db
 
@@ -205,13 +210,8 @@ def start_client_intake(
     return IntakeResponse.from_workflow(result.workflow)
 
 
-@router.get("/intakes/{intake_id}", response_model=IntakeResponse)
-def get_client_intake(
-    intake_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_client),
-) -> IntakeResponse:
-    """Retrieve an intake workflow started by the authenticated client."""
+def _owned_intake(db: Session, intake_id: uuid.UUID, current_user: User) -> Workflow:
+    """Load an intake run the client owns (404 if missing, 403 if not theirs)."""
     wf = db.scalar(
         select(Workflow).where(
             Workflow.id == intake_id,
@@ -224,4 +224,50 @@ def get_client_intake(
         )
     # Ownership follows the conversation the intake started from.
     verify_conversation_ownership(db, wf.conversation_id, current_user)
-    return IntakeResponse.from_workflow(wf)
+    return wf
+
+
+@router.get("/intakes/{intake_id}", response_model=IntakeResponse)
+def get_client_intake(
+    intake_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_client),
+) -> IntakeResponse:
+    """Retrieve an intake workflow started by the authenticated client."""
+    return IntakeResponse.from_workflow(_owned_intake(db, intake_id, current_user))
+
+
+def get_intake_provider(settings: Settings = Depends(get_settings)) -> BaseLLMProvider:
+    """LLM provider for the intake agent (overridable in tests)."""
+    return get_llm_provider(settings)
+
+
+@router.post("/intakes/{intake_id}/turns", response_model=IntakeResponse)
+async def take_client_intake_turn(
+    intake_id: uuid.UUID,
+    payload: IntakeTurnRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_client),
+    provider: BaseLLMProvider = Depends(get_intake_provider),
+) -> IntakeResponse:
+    """Talk to the intake agent (SCRUM-248).
+
+    ``content: null`` opens the intake: the agent pre-fills fields from the
+    client's chat messages and asks its first question. Afterwards each call
+    sends the client's answer and returns the agent's next question, or
+    ``complete: true`` once everything needed is collected or declined.
+    """
+    _owned_intake(db, intake_id, current_user)
+    try:
+        run, _ = await take_turn(
+            db,
+            provider,
+            intake_id,
+            actor_id=current_user.id,
+            client_message=payload.content,
+        )
+    except IntakeTurnError as exc:  # includes IntakeConflictError
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    return IntakeResponse.from_workflow(run)

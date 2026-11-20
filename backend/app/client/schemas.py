@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from services.intake.agent import new_intake_state
 
 
 class ClientRequestResponse(BaseModel):
@@ -111,6 +112,17 @@ class IntakeContextMessage(BaseModel):
     citations: list[dict[str, Any]]
 
 
+class IntakeFieldValue(BaseModel):
+    status: Literal["missing", "provided", "not_provided"]
+    value: str | None
+
+
+class IntakeTurn(BaseModel):
+    role: Literal["agent", "client"]
+    content: str
+    field: str | None
+
+
 class IntakeResponse(BaseModel):
     """An intake workflow as the client sees it."""
 
@@ -121,12 +133,17 @@ class IntakeResponse(BaseModel):
     conversation_id: uuid.UUID | None
     context_source: str | None
     context_messages: list[IntakeContextMessage]
+    # Intake agent progress (SCRUM-248); empty until the intake is opened.
+    fields: dict[str, IntakeFieldValue]
+    turns: list[IntakeTurn]
+    complete: bool
     created_at: datetime
 
     @classmethod
     def from_workflow(cls, wf: Any) -> "IntakeResponse":
         state = wf.state or {}
         context = state.get("context") or {}
+        intake = state.get("intake") or new_intake_state()
         return cls(
             id=wf.id,
             kind=wf.kind,
@@ -142,5 +159,20 @@ class IntakeResponse(BaseModel):
                 )
                 for m in context.get("messages", [])
             ],
+            fields={
+                k: IntakeFieldValue(status=v["status"], value=v.get("value"))
+                for k, v in intake["fields"].items()
+            },
+            turns=[
+                IntakeTurn(role=t["role"], content=t["content"], field=t.get("field"))
+                for t in intake["turns"]
+            ],
+            complete=bool(intake.get("complete")),
             created_at=wf.created_at,
         )
+
+
+class IntakeTurnRequest(BaseModel):
+    """Answer the intake agent, or ``content: null`` to open the intake."""
+
+    content: str | None = Field(default=None, min_length=1, max_length=4000)

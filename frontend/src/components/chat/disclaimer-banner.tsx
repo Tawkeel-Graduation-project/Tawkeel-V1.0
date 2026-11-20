@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, ChevronDown, ChevronUp, Send } from "lucide-react";
-import { Badge, ButtonLink, DirectionalIcon } from "@/components/ui";
+import { AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
+import { Badge, DirectionalIcon } from "@/components/ui";
 import { cn } from "@/lib/cn";
 
 interface DisclaimerBannerProps {
@@ -12,7 +12,8 @@ interface DisclaimerBannerProps {
 /**
  * Acceptance Criteria: Disclaimer is ALWAYS visible.
  * Features an always-visible summary bar with an optional expandable
- * legal compliance & guidelines breakdown, plus a direct CTA to request a lawyer.
+ * legal compliance & guidelines breakdown. "Request a Lawyer" lives in the chat
+ * header and under the latest answer (SCRUM-330), not here.
  */
 export function DisclaimerBanner({ className }: DisclaimerBannerProps) {
   const [expanded, setExpanded] = useState(false);
@@ -48,16 +49,6 @@ export function DisclaimerBanner({ className }: DisclaimerBannerProps) {
 
         {/* Action Controls */}
         <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-          <ButtonLink
-            href="/client/requests"
-            size="sm"
-            variant="secondary"
-            className="h-7 border-warning/40 bg-surface/80 text-xs font-semibold text-foreground hover:bg-surface hover:border-warning/60 hover:text-primary shadow-xs"
-          >
-            <Send aria-hidden className="size-3 rtl:-scale-x-100 text-vivid" />
-            <span>طلب محامٍ</span>
-          </ButtonLink>
-
           <button
             type="button"
             onClick={() => setExpanded((v) => !v)}

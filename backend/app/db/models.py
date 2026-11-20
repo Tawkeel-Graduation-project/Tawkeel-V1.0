@@ -142,6 +142,10 @@ class Workflow(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     case_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("cases.id"))
     request_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("requests.id"))
+    # The chat a workflow started from (intake: the Q&A the client came from).
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("conversations.id"), index=True
+    )
     kind: Mapped[str]  # case_prep | scheduling | intake
     status: Mapped[str] = mapped_column(default="pending")
     # pending | running | awaiting_approval | completed | failed

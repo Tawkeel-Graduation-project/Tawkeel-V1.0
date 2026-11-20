@@ -36,6 +36,7 @@ def create_run(
     *,
     case_id: uuid.UUID | None = None,
     request_id: uuid.UUID | None = None,
+    conversation_id: uuid.UUID | None = None,
     state: dict | None = None,
 ) -> Workflow:
     """Create a new workflow run in the 'pending' status."""
@@ -45,6 +46,7 @@ def create_run(
         status=WorkflowStatus.PENDING.value,
         case_id=case_id,
         request_id=request_id,
+        conversation_id=conversation_id,
         state=state or {},
     )
     session.add(run)

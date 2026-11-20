@@ -2,9 +2,15 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from services.audit.actions import AuditAction
 from services.audit.service import log_event
+from services.workflows.intake import (
+    IntakeContextError,
+    SubmittedMessage,
+    start_intake,
+)
+from services.workflows.states import WorkflowKind
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -19,8 +25,10 @@ from app.client.schemas import (
     ClientConversationResponse,
     ClientRequestResponse,
     CreateClientRequest,
+    IntakeResponse,
+    StartIntakeRequest,
 )
-from app.db.models import Case, Conversation, Request, User
+from app.db.models import Case, Conversation, Request, User, Workflow
 from app.db.session import get_db
 
 router = APIRouter(dependencies=[Depends(require_client)])
@@ -137,3 +145,83 @@ def get_client_conversation(
     """Retrieve a conversation owned by the authenticated client."""
     conv = verify_conversation_ownership(db, conversation_id, current_user)
     return ClientConversationResponse.model_validate(conv)
+
+
+@router.post(
+    "/intakes",
+    response_model=IntakeResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={200: {"description": "An intake is already active for this chat"}},
+)
+def start_client_intake(
+    payload: StartIntakeRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_client),
+) -> IntakeResponse:
+    """'Request a Lawyer': start the intake workflow from a chat (SCRUM-331).
+
+    The chat is snapshotted into the workflow, which moves to ``running`` with
+    phase ``INTAKE``. Returns 201 when started, or 200 with the existing run if
+    this conversation already has an active intake.
+    """
+    conversation = None
+    submitted = None
+    if payload.conversation_id is not None:
+        conversation = verify_conversation_ownership(
+            db, payload.conversation_id, current_user
+        )
+        if conversation.type != "qa":
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Only a legal Q&A conversation can start a lawyer request",
+            )
+    else:
+        submitted = [
+            SubmittedMessage(
+                role=m.role,
+                content=m.content,
+                citations=[
+                    c.model_dump(by_alias=True, exclude_none=True) for c in m.citations
+                ],
+            )
+            for m in payload.messages or []
+        ]
+
+    try:
+        result = start_intake(
+            db,
+            client_id=current_user.id,
+            conversation=conversation,
+            submitted_messages=submitted,
+        )
+    except IntakeContextError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+
+    if not result.created:
+        response.status_code = status.HTTP_200_OK
+    return IntakeResponse.from_workflow(result.workflow)
+
+
+@router.get("/intakes/{intake_id}", response_model=IntakeResponse)
+def get_client_intake(
+    intake_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_client),
+) -> IntakeResponse:
+    """Retrieve an intake workflow started by the authenticated client."""
+    wf = db.scalar(
+        select(Workflow).where(
+            Workflow.id == intake_id,
+            Workflow.kind == WorkflowKind.INTAKE.value,
+        )
+    )
+    if wf is None or wf.conversation_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Intake not found"
+        )
+    # Ownership follows the conversation the intake started from.
+    verify_conversation_ownership(db, wf.conversation_id, current_user)
+    return IntakeResponse.from_workflow(wf)

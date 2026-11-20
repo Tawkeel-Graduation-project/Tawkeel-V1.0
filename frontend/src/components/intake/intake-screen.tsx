@@ -1,16 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { BookOpen, Bot, Info, MessageSquareText, Scale, User } from "lucide-react";
+import { BookOpen, ChevronDown, Info, MessageSquareText, Scale, User } from "lucide-react";
 import { useAuth } from "@/lib/auth/auth-context";
 import { getIntake, IntakeError, type Intake } from "@/lib/intake/api";
 import { intakeErrorCopy, intakePhaseLabel } from "@/lib/intake/copy";
+import { IntakeChat } from "./intake-chat";
 import {
   Badge,
   ButtonLink,
   Card,
   CardBody,
-  CardHeader,
   ErrorState,
   PageHeader,
   PageSkeleton,
@@ -22,9 +22,9 @@ type LoadState =
   | { status: "success"; intake: Intake };
 
 /**
- * One page per lawyer request (SCRUM-330). For now it shows the INTAKE phase
- * and the chat carried over from the assistant; the intake agent (SCRUM-248),
- * summary (SCRUM-250) and approval (SCRUM-251) are added here later.
+ * One page per lawyer request (SCRUM-330): the INTAKE phase, the chat carried
+ * over from the assistant, and the intake agent conversation (SCRUM-248).
+ * Summary (SCRUM-250) and approval (SCRUM-251) are added here later.
  */
 export function IntakeScreen({ id }: { id: string }) {
   const { token } = useAuth();
@@ -97,16 +97,20 @@ export function IntakeScreen({ id }: { id: string }) {
       </Card>
 
       <Card className="mb-4">
-        <CardHeader
-          title={
-            <span className="inline-flex items-center gap-2">
+        <details className="group">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-5 [&::-webkit-details-marker]:hidden">
+          <span className="min-w-0">
+            <span className="inline-flex items-center gap-2 text-base font-semibold">
               <MessageSquareText aria-hidden className="size-4 text-vivid" />
-              المحادثة المنقولة إلى الطلب
+              المحادثة المنقولة إلى الطلب ({intake.contextMessages.length})
             </span>
-          }
-          description="هذا ما سيعتمد عليه وكيل جمع المعلومات من محادثتك مع المساعد القانوني."
-        />
-        <CardBody className="space-y-3">
+            <span className="mt-0.5 block text-sm text-muted">
+              ما يعتمد عليه وكيل جمع المعلومات من محادثتك مع المساعد القانوني.
+            </span>
+          </span>
+          <ChevronDown aria-hidden className="size-4 shrink-0 text-muted transition group-open:rotate-180" />
+        </summary>
+        <CardBody className="space-y-3 border-t border-border">
           {intake.contextSource === "client_submitted" ? (
             <p className="flex items-start gap-2 rounded-xl bg-info-soft/60 px-3 py-2 text-xs text-foreground">
               <Info aria-hidden className="mt-0.5 size-3.5 shrink-0 text-info" />
@@ -152,23 +156,14 @@ export function IntakeScreen({ id }: { id: string }) {
             ))}
           </ol>
         </CardBody>
+        </details>
       </Card>
 
-      {/* Placeholder until the intake agent lands (SCRUM-248). */}
-      <Card>
-        <CardBody className="flex items-start gap-3">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary-soft text-primary">
-            <Bot aria-hidden className="size-5" />
-          </span>
-          <div className="space-y-1">
-            <h2 className="text-sm font-bold text-foreground">وكيل جمع المعلومات</h2>
-            <p className="text-sm leading-relaxed text-muted">
-              سيطرح عليك الوكيل هنا أسئلة قصيرة لاستكمال بيانات قضيتك (الأطراف، التواريخ، الميزانية…).
-              هذه الخطوة قيد التجهيز.
-            </p>
-          </div>
-        </CardBody>
-      </Card>
+      <IntakeChat
+        intake={intake}
+        token={token}
+        onChange={(next) => setState({ status: "success", intake: next })}
+      />
     </div>
   );
 }

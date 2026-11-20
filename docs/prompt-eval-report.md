@@ -179,3 +179,18 @@ uv run python scripts/rag_prompt_eval.py compare baseline improved v2
 ```
 
 CI (`backend/tests/test_rag_prompt_eval.py`) checks dataset integrity and prompt layout. It also replays the recorded `baseline` outputs (the committed prompt) through validation and `ground_answer`, without a model.
+
+## Retrieval Confidence Threshold (SCRUM-326)
+
+To prevent hallucinations and misleading citations on out-of-corpus queries, the answer chain enforces a retrieval confidence threshold (`RETRIEVAL_MIN_SCORE`) before invoking the LLM:
+
+- **Metric:** Cosine similarity ($0.0$ to $1.0$, higher is better).
+- **Behavior:**
+  - If retrieval returns zero results, all scores are `None`, or the best score is strictly below `RETRIEVAL_MIN_SCORE`, the chain immediately returns `ReplyKind.NO_SOURCE` with the standard Arabic refusal message (`لم يُعثر على سند قانوني مؤكد لهذا الاستفسار...`).
+  - The LLM is **never called** in this scenario, conserving latency/cost and eliminating citation fabrication. Citations are returned as an empty list (`[]`).
+  - A score exactly equal to `RETRIEVAL_MIN_SCORE` is accepted (`equal = accepted`).
+- **Configuration & Tuning:**
+  - Configurable via `RETRIEVAL_MIN_SCORE` in `.env` / application settings (`Settings.retrieval_min_score`), or passed per query via `answer_question(..., min_score=...)`.
+  - Increasing the threshold enforces stricter refusal (higher precision, avoiding near-miss drift). Decreasing it allows more borderline articles to reach the model.
+- **Provisional Default:**
+  - The default is set to `0.50`. This threshold is provisional until empirical calibration against the real embedding model (`Snowflake/snowflake-arctic-embed-l-v2.0`) and actual score distributions on Egyptian Labor Law chunks.

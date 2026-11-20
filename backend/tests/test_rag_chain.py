@@ -97,6 +97,7 @@ async def _ask(
     responses=(),
     embedder=None,
     retriever=None,
+    min_score: float | None = 0.0,
     **kwargs,
 ) -> tuple[AnswerOutcome, MockLLMProvider, FakeRetriever]:
     provider = MockLLMProvider(response_sequence=list(responses))
@@ -106,6 +107,7 @@ async def _ask(
         embedder=embedder or FakeEmbedder(),
         retriever=retriever,
         provider=provider,
+        min_score=min_score,
         **kwargs,
     )
     return outcome, provider, retriever
@@ -511,7 +513,75 @@ def test_rag_settings_defaults_and_bounds() -> None:
 
     settings = Settings(**base)
     assert settings.rag_top_k == 8 and settings.rag_max_distance is None
+    assert settings.retrieval_min_score == 0.5
     assert Settings(**base, rag_max_distance=0.4).rag_max_distance == 0.4
-    for bad in [{"rag_top_k": 0}, {"rag_top_k": 51}, {"rag_max_distance": 2.5}]:
+    assert Settings(**base, retrieval_min_score=0.7).retrieval_min_score == 0.7
+    for bad in [
+        {"rag_top_k": 0},
+        {"rag_top_k": 51},
+        {"rag_max_distance": 2.5},
+        {"retrieval_min_score": -0.1},
+        {"retrieval_min_score": 1.1},
+    ]:
         with pytest.raises(ValueError):
             Settings(**base, **bad)
+
+
+# --- SCRUM-326 Confidence threshold unit tests --------------------------------
+
+
+@pytest.mark.anyio
+async def test_confidence_threshold_below_refuses_without_calling_llm() -> None:
+    outcome, provider, _ = await _ask(
+        results=[(ART_111, 0.49)],
+        min_score=0.50,
+        responses=[_llm_answer(("أ", ["S1"]))],
+    )
+    assert outcome.ok
+    assert outcome.answer.status == AnswerStatus.NO_SOURCE
+    assert outcome.attempts == 0 and outcome.source_count == 0
+    assert provider.recorded_calls == []
+
+
+@pytest.mark.anyio
+async def test_confidence_threshold_equal_is_accepted() -> None:
+    outcome, provider, _ = await _ask(
+        results=[(ART_111, 0.50)],
+        min_score=0.50,
+        responses=[_llm_answer(("أ", ["S1"]))],
+    )
+    assert outcome.ok
+    assert outcome.answer.status == AnswerStatus.ANSWERED
+    assert outcome.attempts == 1
+    assert len(provider.recorded_calls) == 1
+
+
+@pytest.mark.anyio
+async def test_confidence_threshold_none_scores_refuses() -> None:
+    outcome, provider, _ = await _ask(
+        results=[(ART_111, None)],
+        min_score=0.50,
+        responses=[_llm_answer(("أ", ["S1"]))],
+    )
+    assert outcome.ok
+    assert outcome.answer.status == AnswerStatus.NO_SOURCE
+    assert outcome.attempts == 0
+    assert provider.recorded_calls == []
+
+
+@pytest.mark.anyio
+async def test_confidence_threshold_uses_settings_default_when_none() -> None:
+    retriever = FakeRetriever(results=[(ART_111, 0.2)])
+    provider = MockLLMProvider(response_sequence=[_llm_answer(("أ", ["S1"]))])
+    outcome = await answer_question(
+        QUESTION,
+        embedder=FakeEmbedder(),
+        retriever=retriever,
+        provider=provider,
+        min_score=None,
+    )
+    # Default is 0.5; score 0.2 < 0.5 triggers refusal without calling LLM
+    assert outcome.ok
+    assert outcome.answer.status == AnswerStatus.NO_SOURCE
+    assert outcome.attempts == 0
+    assert provider.recorded_calls == []

@@ -41,8 +41,14 @@ class Settings(BaseSettings):
     # RAG answer chain. rag_top_k is bounded by the retrieval limit (50); at most
     # 8 sources reach the model. rag_max_distance is a cosine distance (0 to 2);
     # None keeps every retrieved result until a threshold is measured.
+    # retrieval_min_score is the minimum confidence score (cosine similarity,
+    # 0.0 to 1.0, higher = better) required to proceed with answer generation.
+    # If no result meets this threshold, the chain returns a refusal without
+    # calling the model. A score equal to the threshold is accepted.
+    # The default is provisional until calibrated against the real embedder.
     rag_top_k: int = Field(default=8, ge=1, le=50)
     rag_max_distance: float | None = Field(default=None, ge=0.0, le=2.0)
+    retrieval_min_score: float = Field(default=0.5, ge=0.0, le=1.0)
 
     model_config = SettingsConfigDict(
         env_file=REPOSITORY_ROOT / ".env",

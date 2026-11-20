@@ -187,19 +187,32 @@ async def answer_question(
     provider: BaseLLMProvider,
     top_k: int = DEFAULT_TOP_K,
     max_distance: float | None = None,
+    min_score: float | None = None,
     params: LLMParameters | None = None,
 ) -> AnswerOutcome:
     """Answer a legal question from the corpus, with citations.
 
     ``top_k`` chunks are retrieved; at most ``MAX_SOURCES`` reach the model.
     Results with a cosine distance above ``max_distance`` are dropped when it is
-    set. ``top_k`` outside 1..``MAX_SEARCH_LIMIT`` is a programming error and
+    set. If there are no results or the best retrieval confidence score is below
+    ``min_score`` (defaults to ``Settings.retrieval_min_score``), the chain
+    returns a ``no_source`` refusal immediately without calling the LLM.
+    A score equal to ``min_score`` is accepted.
+    ``top_k`` outside 1..``MAX_SEARCH_LIMIT`` is a programming error and
     raises ``ValueError``.
     """
     if isinstance(top_k, bool) or not isinstance(top_k, int):
         raise ValueError("top_k must be an integer")
     if not 1 <= top_k <= MAX_SEARCH_LIMIT:
         raise ValueError(f"top_k must be from 1 to {MAX_SEARCH_LIMIT}")
+
+    if min_score is None:
+        from app.core.config import get_settings
+
+        min_score = get_settings().retrieval_min_score
+
+    if isinstance(min_score, bool) or not isinstance(min_score, (int, float)):
+        raise ValueError("min_score must be a numeric value")
 
     text = normalize_question(question)
     if text is None:
@@ -227,6 +240,42 @@ async def answer_question(
         )
         return AnswerOutcome.failed(AnswerFailure.RETRIEVAL_UNAVAILABLE)
     retrieve_ms = _ms(started)
+
+    # Low retrieval confidence triggers refusal before model call (SCRUM-326).
+    if not results:
+        logger.info("RAG retrieval: no results, LLM not called")
+        return AnswerOutcome.success(
+            GroundedAnswer(status=AnswerStatus.NO_SOURCE), 0, 0
+        )
+
+    valid_scores: list[float] = [
+        float(item[1])
+        for item in results
+        if isinstance(item, tuple)
+        and len(item) > 1
+        and item[1] is not None
+        and isinstance(item[1], (int, float))
+        and math.isfinite(item[1])
+    ]
+
+    if not valid_scores:
+        logger.info("RAG retrieval: no valid numeric scores, LLM not called")
+        return AnswerOutcome.success(
+            GroundedAnswer(status=AnswerStatus.NO_SOURCE), 0, 0
+        )
+
+    best_score = max(valid_scores)
+    # Equal is accepted; strictly below triggers refusal
+    if best_score < min_score:
+        logger.info(
+            "RAG retrieval: confidence below threshold (best=%.4f, min=%.4f), "
+            "LLM not called",
+            best_score,
+            min_score,
+        )
+        return AnswerOutcome.success(
+            GroundedAnswer(status=AnswerStatus.NO_SOURCE), 0, 0
+        )
 
     kept = _within_distance(results, max_distance)
     logger.info(

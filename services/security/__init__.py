@@ -1,5 +1,26 @@
-"""Security utilities and trust-boundary enforcement for AI workflows."""
+"""Security utilities, execution guards, document checks, and trust boundaries."""
 
+from services.security.documents import (
+    ALLOWED_EXTENSIONS,
+    DEFAULT_MAX_FILE_BYTES,
+    DocumentSecurityError,
+    ValidatedDocument,
+    prepare_document_for_llm,
+    validate_uploaded_file,
+)
+from services.security.guards import (
+    INTAKE_ALLOWED_TOOLS,
+    SCHEDULING_ALLOWED_TOOLS,
+    ApprovalGateError,
+    AuthorizedDataScope,
+    OwnershipViolationError,
+    SecurityGuardError,
+    ToolAllowlist,
+    UnauthorizedToolError,
+    VersionedArtifact,
+    verify_resource_ownership,
+    verify_saved_research_ownership,
+)
 from services.security.trust import (
     CLIENT_MESSAGE_TAG,
     CONVERSATION_HISTORY_TAG,
@@ -10,6 +31,8 @@ from services.security.trust import (
     SOURCES_TAG,
     TRUST_BOUNDARY_DIRECTIVE_AR,
     TRUST_BOUNDARY_DIRECTIVE_EN,
+    contains_leakage,
+    detect_injection_signals,
     has_only_allowed_tags,
     sanitize_attribute,
     sanitize_untrusted_text,
@@ -18,18 +41,37 @@ from services.security.trust import (
 )
 
 __all__ = [
+    "ALLOWED_EXTENSIONS",
+    "ApprovalGateError",
+    "AuthorizedDataScope",
     "CLIENT_MESSAGE_TAG",
     "CONVERSATION_HISTORY_TAG",
+    "DEFAULT_MAX_FILE_BYTES",
     "DOCUMENT_TAG",
+    "DocumentSecurityError",
+    "INTAKE_ALLOWED_TOOLS",
     "INTAKE_STATE_TAG",
+    "OwnershipViolationError",
     "QUESTION_TAG",
+    "SCHEDULING_ALLOWED_TOOLS",
     "SOURCES_TAG",
     "SOURCE_TAG",
+    "SecurityGuardError",
     "TRUST_BOUNDARY_DIRECTIVE_AR",
     "TRUST_BOUNDARY_DIRECTIVE_EN",
+    "ToolAllowlist",
+    "UnauthorizedToolError",
+    "ValidatedDocument",
+    "VersionedArtifact",
+    "contains_leakage",
+    "detect_injection_signals",
     "has_only_allowed_tags",
+    "prepare_document_for_llm",
     "sanitize_attribute",
     "sanitize_untrusted_text",
+    "validate_uploaded_file",
+    "verify_resource_ownership",
+    "verify_saved_research_ownership",
     "wrap_data_block",
     "wrap_raw_block",
 ]

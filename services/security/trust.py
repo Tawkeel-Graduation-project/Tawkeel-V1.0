@@ -22,6 +22,7 @@ Design rules:
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 
 SOURCES_TAG = "sources"
 SOURCE_TAG = "source"
@@ -34,6 +35,48 @@ DOCUMENT_TAG = "document"
 _VALID_TAG = re.compile(r"^[a-z][a-z0-9_]*$")
 _TAG_PATTERN = re.compile(r"</?([a-zA-Z0-9_]+)(?:\s[^>]*)?>")
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+# Unicode bidirectional overrides and zero-width chars used to obfuscate payloads.
+_BIDI_AND_INVISIBLE = re.compile(r"[\u200b-\u200d\u202a-\u202e\u2066-\u2069\ufeff]")
+
+_INJECTION_SIGNAL_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "tag_breakout",
+        re.compile(
+            r"</?(?:system|instructions|question|sources|source|client_message|intake_state|document|turn)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "role_marker_spoof",
+        re.compile(
+            r"(?:^|\n)\s*(?:#{1,3}\s*SYSTEM:|---\s*تعليمات النظام|\[رسالة من المطور)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "override_en",
+        re.compile(
+            r"ignore\s+(?:all\s+)?(?:previous|prior)\s+(?:instructions|rules)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "override_ar",
+        re.compile(
+            r"(?:تجاهل|انسى|انسَ)\s+(?:كل\s+)?(?:التعليمات|القواعد|الكلام)",
+            re.IGNORECASE,
+        ),
+    ),
+    ("control_or_bidi_smuggling", re.compile(r"[\x00\u202a-\u202e\u2066-\u2069]")),
+    ("embedded_tool_call", re.compile(r'"tool_call"\s*:', re.IGNORECASE)),
+)
+
+_DEFAULT_LEAK_MARKERS: tuple[str, ...] = (
+    "TRUST BOUNDARY RULE:",
+    "JWT_SECRET_KEY",
+    "DATABASE_URL",
+    "postgresql://",
+)
 
 TRUST_BOUNDARY_DIRECTIVE_EN = (
     "TRUST BOUNDARY RULE:\n"
@@ -54,9 +97,26 @@ TRUST_BOUNDARY_DIRECTIVE_AR = (
 
 
 def sanitize_untrusted_text(text: str) -> str:
-    """Neutralize angle brackets and control chars so data cannot forge tags."""
+    """Neutralize angle brackets, control chars, and bidi/invisible overrides."""
     cleaned = _CONTROL_CHARS.sub("", text)
+    cleaned = _BIDI_AND_INVISIBLE.sub("", cleaned)
     return cleaned.replace("<", "‹").replace(">", "›")
+
+
+def detect_injection_signals(text: str) -> list[str]:
+    """Return sorted signal names for suspicious injection patterns in text."""
+    return sorted(
+        name for name, pattern in _INJECTION_SIGNAL_PATTERNS if pattern.search(text)
+    )
+
+
+def contains_leakage(output_text: str, *, extra_markers: Sequence[str] = ()) -> bool:
+    """Return True if model output leaks protected system-prompt or secret markers."""
+    lowered = output_text.lower()
+    for marker in (*_DEFAULT_LEAK_MARKERS, *extra_markers):
+        if marker and marker.lower() in lowered:
+            return True
+    return False
 
 
 def sanitize_attribute(value: str) -> str:

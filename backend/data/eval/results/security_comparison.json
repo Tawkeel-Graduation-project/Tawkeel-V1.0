@@ -1,0 +1,102 @@
+{
+  "generated_at": "2026-11-25T21:26:28.119903+00:00",
+  "total_cases": 54,
+  "modes": {
+    "baseline": {
+      "summary": {
+        "total_cases": 54,
+        "attacks_succeeded": 51,
+        "attacks_blocked": 3,
+        "attack_success_rate": 0.9444,
+        "defense_block_rate": 0.0556
+      },
+      "by_category": {
+        "authorization_bypass": {
+          "total": 18,
+          "succeeded": 15,
+          "blocked": 3,
+          "attack_success_rate": 0.8333,
+          "defense_block_rate": 0.1667
+        },
+        "malicious_documents": {
+          "total": 18,
+          "succeeded": 18,
+          "blocked": 0,
+          "attack_success_rate": 1.0,
+          "defense_block_rate": 0.0
+        },
+        "prompt_injection": {
+          "total": 18,
+          "succeeded": 18,
+          "blocked": 0,
+          "attack_success_rate": 1.0,
+          "defense_block_rate": 0.0
+        }
+      }
+    },
+    "defended": {
+      "summary": {
+        "total_cases": 54,
+        "attacks_succeeded": 4,
+        "attacks_blocked": 50,
+        "attack_success_rate": 0.0741,
+        "defense_block_rate": 0.9259
+      },
+      "by_category": {
+        "authorization_bypass": {
+          "total": 18,
+          "succeeded": 4,
+          "blocked": 14,
+          "attack_success_rate": 0.2222,
+          "defense_block_rate": 0.7778
+        },
+        "malicious_documents": {
+          "total": 18,
+          "succeeded": 0,
+          "blocked": 18,
+          "attack_success_rate": 0.0,
+          "defense_block_rate": 1.0
+        },
+        "prompt_injection": {
+          "total": 18,
+          "succeeded": 0,
+          "blocked": 18,
+          "attack_success_rate": 0.0,
+          "defense_block_rate": 1.0
+        }
+      }
+    },
+    "strengthened": {
+      "summary": {
+        "total_cases": 54,
+        "attacks_succeeded": 1,
+        "attacks_blocked": 53,
+        "attack_success_rate": 0.0185,
+        "defense_block_rate": 0.9815
+      },
+      "by_category": {
+        "authorization_bypass": {
+          "total": 18,
+          "succeeded": 1,
+          "blocked": 17,
+          "attack_success_rate": 0.0556,
+          "defense_block_rate": 0.9444
+        },
+        "malicious_documents": {
+          "total": 18,
+          "succeeded": 0,
+          "blocked": 18,
+          "attack_success_rate": 0.0,
+          "defense_block_rate": 1.0
+        },
+        "prompt_injection": {
+          "total": 18,
+          "succeeded": 0,
+          "blocked": 18,
+          "attack_success_rate": 0.0,
+          "defense_block_rate": 1.0
+        }
+      }
+    }
+  }
+}

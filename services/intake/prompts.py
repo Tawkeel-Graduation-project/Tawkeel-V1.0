@@ -16,8 +16,24 @@ from services.intake.fields import (
 )
 from services.intake.niches import NICHE_LABELS
 from services.llm.models import LLMMessage
+from services.security.trust import (
+    CLIENT_MESSAGE_TAG,
+    CONVERSATION_HISTORY_TAG,
+    INTAKE_STATE_TAG,
+    TRUST_BOUNDARY_DIRECTIVE_EN,
+    sanitize_untrusted_text,
+    wrap_data_block,
+    wrap_raw_block,
+)
 
 MAX_PROMPT_TURNS = 12
+
+CLIENT_MESSAGE_OPEN = f"<{CLIENT_MESSAGE_TAG}>"
+CLIENT_MESSAGE_CLOSE = f"</{CLIENT_MESSAGE_TAG}>"
+CONVERSATION_HISTORY_OPEN = f"<{CONVERSATION_HISTORY_TAG}>"
+CONVERSATION_HISTORY_CLOSE = f"</{CONVERSATION_HISTORY_TAG}>"
+INTAKE_STATE_OPEN = f"<{INTAKE_STATE_TAG}>"
+INTAKE_STATE_CLOSE = f"</{INTAKE_STATE_TAG}>"
 
 SYSTEM_PROMPT = """You are Tawkeel's intake assistant. A client in Egypt wants a \
 lawyer. Your job is to collect the information a lawyer needs, by asking short \
@@ -63,7 +79,21 @@ def build_system_prompt() -> str:
             optional=", ".join(f.value for f in OPTIONAL_FIELDS),
         )
         + f"\nUrgency values: {', '.join(u.value for u in Urgency)}"
+        + f"\n\n{TRUST_BOUNDARY_DIRECTIVE_EN}"
     )
+
+
+def _format_turns(turns: list[dict[str, Any]]) -> str:
+    """Wrap recent turns in ``<turn>`` tags inside ``<conversation_history>``."""
+    turn_blocks = [
+        wrap_data_block(
+            "turn",
+            str(t.get("content", "")),
+            attributes={"role": str(t.get("role", "unknown"))},
+        )
+        for t in turns[-MAX_PROMPT_TURNS:]
+    ]
+    return wrap_raw_block(CONVERSATION_HISTORY_TAG, "\n".join(turn_blocks))
 
 
 def build_messages(
@@ -73,17 +103,20 @@ def build_messages(
     *,
     last_target: str | None,
 ) -> list[LLMMessage]:
-    """Messages for one agent step. ``client_text`` is what to extract from now."""
-    recent = [
-        {"role": t["role"], "content": t["content"]} for t in turns[-MAX_PROMPT_TURNS:]
-    ]
-    payload = {
-        "current_fields": fields,
-        "last_question_was_about": last_target,
-        "recent_conversation": recent,
-        "client_latest_message": client_text,
-    }
+    """Messages for one agent step. Untrusted data is enclosed in delimited blocks."""
+    state_json = json.dumps(
+        {
+            "current_fields": fields,
+            "last_question_was_about": last_target,
+        },
+        ensure_ascii=False,
+    )
+    state_block = wrap_raw_block(INTAKE_STATE_TAG, sanitize_untrusted_text(state_json))
+    history_block = _format_turns(turns)
+    client_block = wrap_data_block(CLIENT_MESSAGE_TAG, client_text)
+
+    user_content = f"{state_block}\n\n{history_block}\n\n{client_block}"
     return [
         LLMMessage.system(build_system_prompt()),
-        LLMMessage.user(json.dumps(payload, ensure_ascii=False)),
+        LLMMessage.user(user_content),
     ]

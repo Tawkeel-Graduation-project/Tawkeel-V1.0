@@ -89,9 +89,11 @@ class TestTakeTurn:
             await take_turn(
                 db, provider, r.id, actor_id=uuid.uuid4(), client_message=None
             )
-        sent = json.loads(provider.recorded_calls[0][1].content)
-        assert "فصلني" in sent["client_latest_message"]
-        assert "المادة 111" not in sent["client_latest_message"]
+        user_content = provider.recorded_calls[0][1].content
+        assert "<client_message>" in user_content
+        client_block = user_content[user_content.index("<client_message>") :]
+        assert "فصلني" in client_block
+        assert "المادة 111" not in user_content
 
     async def test_cannot_open_twice(self) -> None:
         r = run(intake=opened_intake())

@@ -145,10 +145,18 @@ class TestPrompt:
         msgs = build_messages(
             state["fields"], [], "صاحب العمل فصلني", last_target="facts"
         )
-        payload = json.loads(msgs[1].content)
-        assert payload["client_latest_message"] == "صاحب العمل فصلني"
+        user_content = msgs[1].content
+        assert "<intake_state>" in user_content
+        assert "<conversation_history>" in user_content
+        assert "<client_message>\nصاحب العمل فصلني\n</client_message>" in user_content
+        state_inner = user_content[
+            user_content.index("<intake_state>")
+            + len("<intake_state>") : user_content.index("</intake_state>")
+        ].strip()
+        payload = json.loads(state_inner)
         assert payload["last_question_was_about"] == "facts"
         assert payload["current_fields"]["city"]["status"] == "missing"
+        assert "UNTRUSTED DATA" in msgs[0].content
 
 
 # --- opening turn -----------------------------------------------------------
@@ -173,9 +181,11 @@ class TestOpening:
         assert value(out.state, F.NICHE) == "labor"
         assert out.state["asked"] == {"parties": 1}
         assert out.state["turns"][-1]["role"] == "agent"
-        # The chat text was sent to the model as the client's message.
-        sent = json.loads(provider.recorded_calls[0][1].content)
-        assert "فصلني" in sent["client_latest_message"]
+        # The chat text was sent to the model inside the <client_message> block.
+        user_content = provider.recorded_calls[0][1].content
+        assert "<client_message>" in user_content
+        client_block = user_content[user_content.index("<client_message>") :]
+        assert "فصلني" in client_block
 
     async def test_model_failure_falls_back_to_first_template(self) -> None:
         out = await opened(model(GARBAGE, GARBAGE), context=["سؤال"])

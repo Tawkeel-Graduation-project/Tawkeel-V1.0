@@ -17,11 +17,20 @@ from __future__ import annotations
 
 from services.llm.models import LLMMessage
 from services.rag.sources import SourceContext
+from services.security.trust import (
+    QUESTION_TAG,
+    SOURCE_TAG,
+    SOURCES_TAG,
+    sanitize_attribute,
+    sanitize_untrusted_text,
+    wrap_data_block,
+    wrap_raw_block,
+)
 
-SOURCES_OPEN = "<sources>"
-SOURCES_CLOSE = "</sources>"
-QUESTION_OPEN = "<question>"
-QUESTION_CLOSE = "</question>"
+SOURCES_OPEN = f"<{SOURCES_TAG}>"
+SOURCES_CLOSE = f"</{SOURCES_TAG}>"
+QUESTION_OPEN = f"<{QUESTION_TAG}>"
+QUESTION_CLOSE = f"</{QUESTION_TAG}>"
 
 SYSTEM_PROMPT = """\
 أنت مساعد قانوني متخصص في القانون المصري. مهمتك الإجابة عن سؤال المستخدم \
@@ -50,31 +59,31 @@ SYSTEM_PROMPT = """\
 
 def _as_data(text: str) -> str:
     """Neutralise angle brackets so data cannot open or close a block tag."""
-    return text.replace("<", "‹").replace(">", "›")
+    return sanitize_untrusted_text(text)
 
 
 def _attribute(value: str) -> str:
-    return _as_data(value).replace('"', "'").replace("\n", " ").strip()
+    return sanitize_attribute(value)
 
 
 def format_sources(context: SourceContext) -> str:
     """The delimited sources block: one ``<source>`` per label, in label order."""
-    parts = [SOURCES_OPEN]
+    inner_blocks: list[str] = []
     for source in context.sources:
         chunk = source.chunk
-        attributes = f'label="{source.label}" name="{_attribute(chunk.source_name)}"'
+        attrs: dict[str, str] = {
+            "label": source.label,
+            "name": chunk.source_name,
+        }
         if chunk.article_number:
-            attributes += f' article="{_attribute(chunk.article_number)}"'
-        parts.append(
-            f"<source {attributes}>\n{_as_data(chunk.text.strip())}\n</source>"
-        )
-    parts.append(SOURCES_CLOSE)
-    return "\n".join(parts)
+            attrs["article"] = chunk.article_number
+        inner_blocks.append(wrap_data_block(SOURCE_TAG, chunk.text, attributes=attrs))
+    return wrap_raw_block(SOURCES_TAG, "\n".join(inner_blocks))
 
 
 def format_question(question: str) -> str:
     """The delimited question block."""
-    return f"{QUESTION_OPEN}\n{_as_data(question.strip())}\n{QUESTION_CLOSE}"
+    return wrap_data_block(QUESTION_TAG, question)
 
 
 def build_messages(question: str, context: SourceContext) -> list[LLMMessage]:

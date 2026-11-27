@@ -2,6 +2,7 @@ import type { IntakeErrorCode, IntakePhase } from "./api";
 
 export const intakeErrorCopy: Record<IntakeErrorCode, string> = {
   no_answer: "يمكن طلب محامٍ بعد أن يجيب المساعد على سؤالك أولاً.",
+  invalid_summary: "تعذّر حفظ التعديلات: إحدى القيم غير صالحة أو أطول من المسموح. راجعها ثم أعد المحاولة.",
   unauthorized: "انتهت جلستك. يرجى تسجيل الدخول مرة أخرى ثم المحاولة.",
   forbidden: "ليس لديك صلاحية للوصول إلى هذا الطلب.",
   not_found: "لم يتم العثور على هذا الطلب.",

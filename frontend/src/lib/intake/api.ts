@@ -12,6 +12,17 @@
  *     200 -> Intake (with the agent's next question, or complete: true)
  *     409 -> intake already complete / another answer was saved first
  *
+ * Summary review and approval (SCRUM-341 screen; endpoints built in SCRUM-342):
+ *
+ *   PATCH {API}/client/intakes/{id}/summary   { fields: { [field]: string | null } }
+ *     200 -> Intake (edited fields saved; null or "" means "not provided")
+ *     409 -> intake not complete yet, or already approved
+ *     422 -> unknown field, invalid niche/urgency key, or value too long
+ *   POST  {API}/client/intakes/{id}/approve   { confirmed: true, fields: {...} }
+ *     200 -> Intake (approved_at set; nothing may reach a lawyer before this)
+ *     409 -> already approved, or `fields` differs from the saved summary
+ *            (the client must approve exactly what is stored)
+ *
  * Until chat is saved server-side, the browser sends the transcript; the
  * backend stores it and marks it `client_submitted`. The returned
  * `conversationId` is sent on later clicks so the same intake is reused.
@@ -19,7 +30,13 @@
  * Without NEXT_PUBLIC_API_URL a browser-only mock answers instead (demo only).
  */
 import type { ChatMessage, Citation } from "@/lib/chat/types";
-import { ALL_FIELDS, NICHE_LABELS, type IntakeFieldKey, type IntakeFieldStatus } from "./fields";
+import {
+  ALL_FIELDS,
+  NICHE_LABELS,
+  URGENCY_LABELS,
+  type IntakeFieldKey,
+  type IntakeFieldStatus,
+} from "./fields";
 
 export type IntakePhase = "INTAKE";
 export type IntakeContextSource = "server" | "client_submitted";
@@ -53,11 +70,31 @@ export interface Intake {
   fields: Record<IntakeFieldKey, IntakeFieldValue>;
   turns: IntakeTurn[];
   complete: boolean;
+  /** When the client approved the summary (SCRUM-341/342); null until then. */
+  approvedAt: string | null;
   createdAt: string;
 }
 
+/** The summary as the client edits and approves it: one value per field, null = not provided. */
+export type IntakeSummaryValues = Record<IntakeFieldKey, string | null>;
+
+/** Longest value the client may type for one field (the backend enforces it too). */
+export const SUMMARY_MAX_LENGTH: Record<IntakeFieldKey, number> = {
+  facts: 4000,
+  niche: 64,
+  parties: 1000,
+  key_dates: 1000,
+  urgency: 64,
+  city: 200,
+  budget: 200,
+  documents: 1000,
+  deadlines: 1000,
+  preferred_times: 500,
+};
+
 export type IntakeErrorCode =
   | "no_answer"
+  | "invalid_summary"
   | "unauthorized"
   | "forbidden"
   | "not_found"
@@ -106,6 +143,40 @@ export function takeIntakeTurn(id: string, content: string | null, token: string
   return API_URL ? real.turn(id, content, token) : mock.turn(id, content);
 }
 
+/** Save the client's edits to the summary. Only possible before approval. */
+export function updateIntakeSummary(
+  id: string,
+  fields: Partial<IntakeSummaryValues>,
+  token: string | null,
+): Promise<Intake> {
+  return API_URL ? real.updateSummary(id, fields, token) : mock.updateSummary(id, fields);
+}
+
+/**
+ * Approve the summary exactly as the client sees it. `fields` is sent so the
+ * backend can refuse (409) if the stored summary changed in the meantime.
+ */
+export function approveIntakeSummary(
+  id: string,
+  fields: IntakeSummaryValues,
+  token: string | null,
+): Promise<Intake> {
+  return API_URL ? real.approve(id, fields, token) : mock.approve(id, fields);
+}
+
+/** The current summary values of an intake (null for missing / not provided). */
+export function summaryValues(intake: Intake): IntakeSummaryValues {
+  return Object.fromEntries(
+    ALL_FIELDS.map((f) => [f, intake.fields[f]?.status === "provided" ? intake.fields[f].value : null]),
+  ) as IntakeSummaryValues;
+}
+
+/** Trim, and turn empty text into null ("not provided"). */
+export function normalizeSummaryValue(value: string | null | undefined): string | null {
+  const trimmed = (value ?? "").trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 // --- real backend -----------------------------------------------------------
 interface IntakeResponse {
   id: string;
@@ -118,6 +189,8 @@ interface IntakeResponse {
   fields: Record<IntakeFieldKey, IntakeFieldValue>;
   turns: IntakeTurn[];
   complete: boolean;
+  /** Added by SCRUM-342; treated as null while the backend doesn't send it. */
+  approved_at?: string | null;
   created_at: string;
 }
 
@@ -133,6 +206,7 @@ function fromResponse(data: IntakeResponse): Intake {
     fields: data.fields,
     turns: data.turns,
     complete: data.complete,
+    approvedAt: data.approved_at ?? null,
     createdAt: data.created_at,
   };
 }
@@ -145,7 +219,18 @@ const statusErrors: Record<number, IntakeErrorCode> = {
   422: "no_answer",
 };
 
-async function call(path: string, token: string | null, init?: RequestInit): Promise<Intake> {
+/** For the summary endpoints a 422 means the edited values were rejected. */
+const summaryStatusErrors: Record<number, IntakeErrorCode> = {
+  ...statusErrors,
+  422: "invalid_summary",
+};
+
+async function call(
+  path: string,
+  token: string | null,
+  init?: RequestInit,
+  errors: Record<number, IntakeErrorCode> = statusErrors,
+): Promise<Intake> {
   let res: Response;
   try {
     res = await fetch(API_URL + path, {
@@ -158,7 +243,7 @@ async function call(path: string, token: string | null, init?: RequestInit): Pro
   } catch {
     throw new IntakeError("network");
   }
-  if (!res.ok) throw new IntakeError(statusErrors[res.status] ?? "unknown");
+  if (!res.ok) throw new IntakeError(errors[res.status] ?? "unknown");
   return fromResponse((await res.json()) as IntakeResponse);
 }
 
@@ -177,6 +262,22 @@ const real = {
       method: "POST",
       body: JSON.stringify({ content }),
     });
+  },
+  updateSummary(id: string, fields: Partial<IntakeSummaryValues>, token: string | null) {
+    return call(
+      `/client/intakes/${encodeURIComponent(id)}/summary`,
+      token,
+      { method: "PATCH", body: JSON.stringify({ fields }) },
+      summaryStatusErrors,
+    );
+  },
+  approve(id: string, fields: IntakeSummaryValues, token: string | null) {
+    return call(
+      `/client/intakes/${encodeURIComponent(id)}/approve`,
+      token,
+      { method: "POST", body: JSON.stringify({ confirmed: true, fields }) },
+      summaryStatusErrors,
+    );
   },
 };
 
@@ -224,6 +325,7 @@ const mock = {
       fields: emptyFields(),
       turns: [],
       complete: false,
+      approvedAt: null,
       createdAt: new Date().toISOString(),
     };
     writeAll([...all, intake]);
@@ -271,6 +373,47 @@ const mock = {
     writeAll(all);
     return intake;
   },
+
+  /** Mirrors the rules SCRUM-342 enforces on the server. */
+  async updateSummary(id: string, fields: Partial<IntakeSummaryValues>): Promise<Intake> {
+    await delay();
+    const all = readAll();
+    const index = all.findIndex((i) => i.id === id);
+    if (index < 0) throw new IntakeError("not_found");
+    const intake = withIntakeDefaults(all[index]);
+    if (!intake.complete || intake.approvedAt) throw new IntakeError("conflict");
+
+    for (const [key, raw] of Object.entries(fields)) {
+      if (!ALL_FIELDS.includes(key as IntakeFieldKey)) throw new IntakeError("invalid_summary");
+      const field = key as IntakeFieldKey;
+      const value = normalizeSummaryValue(raw);
+      if (value && value.length > SUMMARY_MAX_LENGTH[field]) throw new IntakeError("invalid_summary");
+      if (field === "niche" && value && !(value in NICHE_LABELS)) throw new IntakeError("invalid_summary");
+      if (field === "urgency" && value && !(value in URGENCY_LABELS)) throw new IntakeError("invalid_summary");
+      intake.fields[field] = value ? { status: "provided", value } : { status: "not_provided", value: null };
+    }
+    all[index] = intake;
+    writeAll(all);
+    return intake;
+  },
+
+  async approve(id: string, fields: IntakeSummaryValues): Promise<Intake> {
+    await delay();
+    const all = readAll();
+    const index = all.findIndex((i) => i.id === id);
+    if (index < 0) throw new IntakeError("not_found");
+    const intake = withIntakeDefaults(all[index]);
+    if (!intake.complete || intake.approvedAt) throw new IntakeError("conflict");
+    const stored = summaryValues(intake);
+    if (ALL_FIELDS.some((f) => normalizeSummaryValue(fields[f]) !== stored[f])) {
+      throw new IntakeError("conflict");
+    }
+    intake.status = "completed";
+    intake.approvedAt = new Date().toISOString();
+    all[index] = intake;
+    writeAll(all);
+    return intake;
+  },
 };
 
 function emptyFields(): Record<IntakeFieldKey, IntakeFieldValue> {
@@ -287,6 +430,7 @@ function withIntakeDefaults(intake: Intake): Intake {
     fields: { ...emptyFields(), ...(intake.fields ?? {}) },
     turns: [...(intake.turns ?? [])],
     complete: Boolean(intake.complete),
+    approvedAt: intake.approvedAt ?? null,
   };
 }
 

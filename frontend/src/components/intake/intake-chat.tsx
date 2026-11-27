@@ -150,7 +150,11 @@ export function IntakeChat({ intake, token, onChange }: IntakeChatProps) {
             >
               <CheckCircle2 aria-hidden className="mt-0.5 size-4 shrink-0 text-success" />
               <span>
-                اكتملت المعلومات. الخطوة التالية هي مراجعة ملخص طلبك وتعديله قبل الموافقة على إرساله (قريباً).
+                اكتملت المعلومات. الخطوة التالية هي{" "}
+                <a href="#summary-review" className="font-semibold text-primary underline underline-offset-2">
+                  مراجعة ملخص طلبك
+                </a>{" "}
+                بالأسفل وتعديله قبل الموافقة عليه.
               </span>
             </div>
           ) : (

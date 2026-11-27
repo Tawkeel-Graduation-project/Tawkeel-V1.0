@@ -7,6 +7,7 @@ import { getIntake, IntakeError, type Intake } from "@/lib/intake/api";
 import { intakeErrorCopy, intakePhaseLabel } from "@/lib/intake/copy";
 import { IntakeChat } from "./intake-chat";
 import { SummaryReview } from "./summary-review";
+import { LawyerSelection } from "./lawyer-selection";
 import {
   Badge,
   ButtonLink,
@@ -25,7 +26,8 @@ type LoadState =
 /**
  * One page per lawyer request (SCRUM-330): the INTAKE phase, the chat carried
  * over from the assistant, the intake agent conversation (SCRUM-248), and,
- * once the intake is complete, the summary review and approval (SCRUM-341).
+ * once the intake is complete, the summary review and approval (SCRUM-341),
+ * then, once approved, choosing a lawyer and sending the request (SCRUM-345).
  */
 export function IntakeScreen({ id }: { id: string }) {
   const { token } = useAuth();
@@ -170,6 +172,14 @@ export function IntakeScreen({ id }: { id: string }) {
         <SummaryReview
           // Remount (and reset the draft) whenever the saved summary changes.
           key={`${intake.approvedAt ?? "draft"}:${JSON.stringify(intake.fields)}`}
+          intake={intake}
+          token={token}
+          onChange={(next) => setState({ status: "success", intake: next })}
+        />
+      ) : null}
+
+      {intake.approvedAt ? (
+        <LawyerSelection
           intake={intake}
           token={token}
           onChange={(next) => setState({ status: "success", intake: next })}

@@ -23,6 +23,17 @@
  *     409 -> already approved, or `fields` differs from the saved summary
  *            (the client must approve exactly what is stored)
  *
+ * Choosing a lawyer and sending (SCRUM-345 screen; endpoints SCRUM-344/346):
+ *
+ *   GET  {API}/client/lawyers
+ *     200 -> Lawyer[] (verified lawyers only)
+ *   POST {API}/client/intakes/{id}/send   { lawyer_id }
+ *     201 -> SentRequest (status "sent"; the server copies the APPROVED
+ *            summary itself, the browser never sends the summary)
+ *     409 -> summary not approved yet, or this intake was already sent
+ *     404 -> lawyer not found or not verified
+ *   The intake response carries `request` (null until sent).
+ *
  * Until chat is saved server-side, the browser sends the transcript; the
  * backend stores it and marks it `client_submitted`. The returned
  * `conversationId` is sent on later clicks so the same intake is reused.
@@ -72,6 +83,28 @@ export interface Intake {
   complete: boolean;
   /** When the client approved the summary (SCRUM-341/342); null until then. */
   approvedAt: string | null;
+  /** The request sent to a lawyer (SCRUM-345); null until sent. */
+  request: SentRequest | null;
+  createdAt: string;
+}
+
+/** A verified lawyer the client can send the request to. */
+export interface Lawyer {
+  id: string;
+  fullName: string;
+  /** Niche keys, e.g. "labor" (see NICHE_LABELS). */
+  niches: string[];
+  city: string | null;
+  feeMin: number | null;
+  feeMax: number | null;
+  yearsExperience: number | null;
+  bio: string | null;
+}
+
+export interface SentRequest {
+  id: string;
+  lawyerId: string;
+  status: "sent";
   createdAt: string;
 }
 
@@ -95,6 +128,7 @@ export const SUMMARY_MAX_LENGTH: Record<IntakeFieldKey, number> = {
 export type IntakeErrorCode =
   | "no_answer"
   | "invalid_summary"
+  | "lawyer_unavailable"
   | "unauthorized"
   | "forbidden"
   | "not_found"
@@ -164,6 +198,19 @@ export function approveIntakeSummary(
   return API_URL ? real.approve(id, fields, token) : mock.approve(id, fields);
 }
 
+/** Verified lawyers the client can choose from (January: the seeded list). */
+export function listLawyers(token: string | null): Promise<Lawyer[]> {
+  return API_URL ? real.lawyers(token) : mock.lawyers();
+}
+
+/**
+ * Send the approved summary to one lawyer. Only the ids are sent: the server
+ * attaches the summary the client approved, so nothing unapproved can leak.
+ */
+export function sendIntakeToLawyer(id: string, lawyerId: string, token: string | null): Promise<Intake> {
+  return API_URL ? real.send(id, lawyerId, token) : mock.send(id, lawyerId);
+}
+
 /** The current summary values of an intake (null for missing / not provided). */
 export function summaryValues(intake: Intake): IntakeSummaryValues {
   return Object.fromEntries(
@@ -191,7 +238,44 @@ interface IntakeResponse {
   complete: boolean;
   /** Added by SCRUM-342; treated as null while the backend doesn't send it. */
   approved_at?: string | null;
+  /** Added by SCRUM-344; treated as null while the backend doesn't send it. */
+  request?: SentRequestResponse | null;
   created_at: string;
+}
+
+interface SentRequestResponse {
+  id: string;
+  lawyer_id: string;
+  status: "sent";
+  created_at: string;
+}
+
+interface LawyerResponse {
+  id: string;
+  full_name: string;
+  niches: string[] | null;
+  city: string | null;
+  fee_min: number | null;
+  fee_max: number | null;
+  years_experience: number | null;
+  bio: string | null;
+}
+
+function fromRequest(data: SentRequestResponse): SentRequest {
+  return { id: data.id, lawyerId: data.lawyer_id, status: data.status, createdAt: data.created_at };
+}
+
+function fromLawyer(data: LawyerResponse): Lawyer {
+  return {
+    id: data.id,
+    fullName: data.full_name,
+    niches: data.niches ?? [],
+    city: data.city,
+    feeMin: data.fee_min,
+    feeMax: data.fee_max,
+    yearsExperience: data.years_experience,
+    bio: data.bio,
+  };
 }
 
 function fromResponse(data: IntakeResponse): Intake {
@@ -207,6 +291,7 @@ function fromResponse(data: IntakeResponse): Intake {
     turns: data.turns,
     complete: data.complete,
     approvedAt: data.approved_at ?? null,
+    request: data.request ? fromRequest(data.request) : null,
     createdAt: data.created_at,
   };
 }
@@ -225,12 +310,27 @@ const summaryStatusErrors: Record<number, IntakeErrorCode> = {
   422: "invalid_summary",
 };
 
+/** For sending, a 404 means the chosen lawyer is gone or not verified. */
+const sendStatusErrors: Record<number, IntakeErrorCode> = {
+  ...statusErrors,
+  404: "lawyer_unavailable",
+};
+
 async function call(
   path: string,
   token: string | null,
   init?: RequestInit,
   errors: Record<number, IntakeErrorCode> = statusErrors,
 ): Promise<Intake> {
+  return fromResponse((await callJson(path, token, init, errors)) as IntakeResponse);
+}
+
+async function callJson(
+  path: string,
+  token: string | null,
+  init?: RequestInit,
+  errors: Record<number, IntakeErrorCode> = statusErrors,
+): Promise<unknown> {
   let res: Response;
   try {
     res = await fetch(API_URL + path, {
@@ -244,7 +344,7 @@ async function call(
     throw new IntakeError("network");
   }
   if (!res.ok) throw new IntakeError(errors[res.status] ?? "unknown");
-  return fromResponse((await res.json()) as IntakeResponse);
+  return res.json();
 }
 
 const real = {
@@ -278,6 +378,20 @@ const real = {
       { method: "POST", body: JSON.stringify({ confirmed: true, fields }) },
       summaryStatusErrors,
     );
+  },
+  async lawyers(token: string | null) {
+    const data = (await callJson("/client/lawyers", token)) as LawyerResponse[];
+    return data.map(fromLawyer);
+  },
+  async send(id: string, lawyerId: string, token: string | null) {
+    await callJson(
+      `/client/intakes/${encodeURIComponent(id)}/send`,
+      token,
+      { method: "POST", body: JSON.stringify({ lawyer_id: lawyerId }) },
+      sendStatusErrors,
+    );
+    // Re-read the intake so the page shows the request exactly as stored.
+    return real.get(id, token);
   },
 };
 
@@ -326,6 +440,7 @@ const mock = {
       turns: [],
       complete: false,
       approvedAt: null,
+      request: null,
       createdAt: new Date().toISOString(),
     };
     writeAll([...all, intake]);
@@ -414,7 +529,66 @@ const mock = {
     writeAll(all);
     return intake;
   },
+
+  async lawyers(): Promise<Lawyer[]> {
+    await delay();
+    return MOCK_LAWYERS;
+  },
+
+  async send(id: string, lawyerId: string): Promise<Intake> {
+    await delay();
+    const all = readAll();
+    const index = all.findIndex((i) => i.id === id);
+    if (index < 0) throw new IntakeError("not_found");
+    const intake = withIntakeDefaults(all[index]);
+    // Nothing reaches a lawyer before approval, and each intake is sent once.
+    if (!intake.approvedAt || intake.request) throw new IntakeError("conflict");
+    if (!MOCK_LAWYERS.some((l) => l.id === lawyerId)) throw new IntakeError("lawyer_unavailable");
+    intake.request = {
+      id: crypto.randomUUID(),
+      lawyerId,
+      status: "sent",
+      createdAt: new Date().toISOString(),
+    };
+    all[index] = intake;
+    writeAll(all);
+    return intake;
+  },
 };
+
+/** The verified lawyers from backend/scripts/seed.py (Omar is unverified, so not listed). */
+const MOCK_LAWYERS: Lawyer[] = [
+  {
+    id: "00000000-0000-4000-8000-000000000001",
+    fullName: "Manal Anwer",
+    niches: ["labor", "civil"],
+    city: "Cairo",
+    feeMin: 300,
+    feeMax: 600,
+    yearsExperience: 8,
+    bio: "Labor and civil disputes.",
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000002",
+    fullName: "Esraa Alaa",
+    niches: ["personal_status"],
+    city: "Tanta",
+    feeMin: 200,
+    feeMax: 400,
+    yearsExperience: 5,
+    bio: "Family and personal status cases.",
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000003",
+    fullName: "Noura shousha",
+    niches: ["commercial", "real_estate"],
+    city: "Alexandria",
+    feeMin: 800,
+    feeMax: 1500,
+    yearsExperience: 15,
+    bio: "Commercial contracts and real estate.",
+  },
+];
 
 function emptyFields(): Record<IntakeFieldKey, IntakeFieldValue> {
   return Object.fromEntries(ALL_FIELDS.map((f) => [f, { status: "missing", value: null }])) as Record<
@@ -431,6 +605,7 @@ function withIntakeDefaults(intake: Intake): Intake {
     turns: [...(intake.turns ?? [])],
     complete: Boolean(intake.complete),
     approvedAt: intake.approvedAt ?? null,
+    request: intake.request ?? null,
   };
 }
 

@@ -210,7 +210,11 @@ export function SummaryReview({ intake, token, onChange }: SummaryReviewProps) {
           </div>
         ) : approved ? (
           <Alert tone="success" title="تمت الموافقة على الملخص">
-            لن يطّلع أي محامٍ إلا على هذا الملخص كما وافقت عليه. الخطوة التالية: اختيار المحامي.
+            لن يطّلع أي محامٍ إلا على هذا الملخص كما وافقت عليه. الخطوة التالية:{" "}
+            <a href="#lawyer-selection" className="font-semibold text-primary underline underline-offset-2">
+              اختيار المحامي
+            </a>
+            .
           </Alert>
         ) : (
           <div className="space-y-3 border-t border-border pt-4">

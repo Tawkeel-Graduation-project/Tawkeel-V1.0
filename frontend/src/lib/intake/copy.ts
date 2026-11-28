@@ -14,4 +14,6 @@ export const intakeErrorCopy: Record<IntakeErrorCode, string> = {
 
 export const intakePhaseLabel: Record<IntakePhase, string> = {
   INTAKE: "جمع معلومات القضية",
+  SUMMARY_REVIEW: "مراجعة الملخص",
+  APPROVED: "تمت الموافقة على الملخص",
 };

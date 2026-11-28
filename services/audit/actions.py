@@ -21,6 +21,9 @@ class AuditAction(StrEnum):
     APPROVAL_APPROVED = "approval.approved"
     APPROVAL_REJECTED = "approval.rejected"
 
+    # Client edits the intake summary before approving it (C6, SCRUM-342)
+    SUMMARY_EDITED = "summary.edited"
+
     # Request state transitions (C8, C9)
     REQUEST_CREATED = "request.created"
     REQUEST_ACCEPTED = "request.accepted"

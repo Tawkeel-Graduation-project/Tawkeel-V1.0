@@ -6,6 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from services.audit.actions import AuditAction
 from services.audit.service import log_event
 from services.intake.service import IntakeTurnError, take_turn
+from services.intake.summary import (
+    SummaryConflictError,
+    SummaryValidationError,
+    approve_summary,
+    update_summary,
+)
 from services.llm.factory import get_llm_provider
 from services.llm.provider import BaseLLMProvider
 from services.requests.states import RequestStatus
@@ -25,6 +31,7 @@ from app.auth.ownership import (
     verify_request_ownership,
 )
 from app.client.schemas import (
+    ApproveSummaryRequest,
     ClientCaseResponse,
     ClientConversationResponse,
     ClientRequestResponse,
@@ -32,6 +39,7 @@ from app.client.schemas import (
     IntakeResponse,
     IntakeTurnRequest,
     StartIntakeRequest,
+    UpdateSummaryRequest,
 )
 from app.core.config import Settings, get_settings
 from app.db.models import Case, Conversation, Request, User, Workflow
@@ -271,4 +279,56 @@ async def take_client_intake_turn(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(exc)
         ) from exc
+    return IntakeResponse.from_workflow(run)
+
+
+def _summary_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, SummaryValidationError):
+        code = status.HTTP_422_UNPROCESSABLE_CONTENT
+    else:
+        code = status.HTTP_409_CONFLICT
+    return HTTPException(status_code=code, detail=str(exc))
+
+
+@router.patch("/intakes/{intake_id}/summary", response_model=IntakeResponse)
+def update_client_intake_summary(
+    intake_id: uuid.UUID,
+    payload: UpdateSummaryRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_client),
+) -> IntakeResponse:
+    """Edit the intake summary while it is under review (SCRUM-342).
+
+    ``null`` or ``""`` marks a field "not provided". 409 before the intake is
+    complete or after approval; 422 for an unknown field or invalid value.
+    """
+    _owned_intake(db, intake_id, current_user)
+    try:
+        run = update_summary(db, intake_id, payload.fields, actor_id=current_user.id)
+    except (SummaryConflictError, SummaryValidationError) as exc:
+        raise _summary_http_error(exc) from exc
+    db.commit()
+    db.refresh(run)
+    return IntakeResponse.from_workflow(run)
+
+
+@router.post("/intakes/{intake_id}/approve", response_model=IntakeResponse)
+def approve_client_intake_summary(
+    intake_id: uuid.UUID,
+    payload: ApproveSummaryRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_client),
+) -> IntakeResponse:
+    """Approve the summary exactly as stored; nothing reaches a lawyer before this.
+
+    409 if not under review, already approved, a required field is missing, or
+    ``fields`` differs from the stored summary. Records consent and audit.
+    """
+    _owned_intake(db, intake_id, current_user)
+    try:
+        run = approve_summary(db, intake_id, payload.fields, actor_id=current_user.id)
+    except (SummaryConflictError, SummaryValidationError) as exc:
+        raise _summary_http_error(exc) from exc
+    db.commit()
+    db.refresh(run)
     return IntakeResponse.from_workflow(run)

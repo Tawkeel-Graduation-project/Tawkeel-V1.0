@@ -67,7 +67,7 @@ import {
   type RequestStatus,
 } from "@/lib/requests/status";
 
-export type IntakePhase = "INTAKE";
+export type IntakePhase = "INTAKE" | "SUMMARY_REVIEW" | "APPROVED";
 export type IntakeContextSource = "server" | "client_submitted";
 
 export interface IntakeContextMessage {

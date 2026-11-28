@@ -17,7 +17,7 @@ from services.audit.service import log_event
 from services.intake.agent import TurnOutcome, new_intake_state, run_turn
 from services.llm.provider import BaseLLMProvider
 from services.workflows.intake import IntakePhase
-from services.workflows.service import get_run
+from services.workflows.service import apply_transition, get_run
 from services.workflows.states import WorkflowKind, WorkflowStatus
 
 
@@ -106,6 +106,16 @@ async def take_turn(
             "complete": outcome.complete,
         },
     )
+    if outcome.complete:
+        # The agent's completion (no field left missing) opens summary review
+        # (SCRUM-342), in the same commit as the final turn.
+        apply_transition(
+            session,
+            run,
+            WorkflowStatus.AWAITING_APPROVAL,
+            state_patch={"phase": IntakePhase.SUMMARY_REVIEW.value},
+            actor_id=actor_id,
+        )
     session.commit()
     session.refresh(run)
     return run, outcome

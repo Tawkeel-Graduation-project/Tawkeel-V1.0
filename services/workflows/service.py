@@ -15,6 +15,7 @@ from services.workflows.states import (
     WorkflowKind,
     WorkflowStatus,
     can_transition,
+    ensure_transition,
 )
 
 logger = logging.getLogger(__name__)
@@ -101,6 +102,31 @@ def transition(
             session.rollback()  # releases the row lock
         raise InvalidTransitionError(run.kind, current, str(target))
 
+    apply_transition(session, run, target, state_patch=state_patch, actor_id=actor_id)
+    session.commit()
+    session.refresh(run)
+    return run
+
+
+def apply_transition(
+    session: Session,
+    run: Workflow,
+    target: str,
+    *,
+    state_patch: dict | None = None,
+    actor_id: uuid.UUID | None = None,
+) -> Workflow:
+    """Validate and apply a transition in the caller's transaction (no commit).
+
+    Use this when the transition must land atomically with other writes; the
+    caller should hold the row lock (``get_run(..., lock=True)``).
+
+    Raises:
+        InvalidTransitionError: the move is not allowed for this kind.
+    """
+    current = run.status
+    ensure_transition(run.kind, current, target)
+
     state = dict(run.state or {})
     state.update(state_patch or {})
     state["history"] = [
@@ -125,9 +151,6 @@ def transition(
             before={"status": current},
             after={"status": run.status},
         )
-
-    session.commit()
-    session.refresh(run)
     return run
 
 

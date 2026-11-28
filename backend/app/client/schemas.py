@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from services.intake.agent import new_intake_state
+from services.intake.fields import ALL_FIELDS
 from services.requests.states import RequestStatus
 
 
@@ -138,6 +139,8 @@ class IntakeResponse(BaseModel):
     fields: dict[str, IntakeFieldValue]
     turns: list[IntakeTurn]
     complete: bool
+    # When the client approved the summary (SCRUM-342); None until then.
+    approved_at: datetime | None
     created_at: datetime
 
     @classmethod
@@ -169,6 +172,7 @@ class IntakeResponse(BaseModel):
                 for t in intake["turns"]
             ],
             complete=bool(intake.get("complete")),
+            approved_at=(state.get("summary") or {}).get("approved_at"),
             created_at=wf.created_at,
         )
 
@@ -177,3 +181,26 @@ class IntakeTurnRequest(BaseModel):
     """Answer the intake agent, or ``content: null`` to open the intake."""
 
     content: str | None = Field(default=None, min_length=1, max_length=4000)
+
+
+# --- Summary review and approval (SCRUM-342) --------------------------------
+
+# One value per field; null or "" means "not provided". Keys and values are
+# checked by services.intake.summary (unknown field or invalid value -> 422).
+SummaryFields = dict[str, str | None]
+MAX_APPROVE_FIELDS = 100
+
+
+class UpdateSummaryRequest(BaseModel):
+    """Edit some summary fields while the intake is in SUMMARY_REVIEW."""
+
+    fields: SummaryFields = Field(max_length=len(ALL_FIELDS))
+
+
+class ApproveSummaryRequest(BaseModel):
+    """Approve the summary exactly as the client saw it (``fields``)."""
+
+    confirmed: Literal[True]
+    # Only compared with the stored summary: extra keys are a mismatch (409),
+    # so the cap here just bounds the payload.
+    fields: SummaryFields = Field(max_length=MAX_APPROVE_FIELDS)

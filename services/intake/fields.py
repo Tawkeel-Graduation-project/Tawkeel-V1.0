@@ -62,6 +62,21 @@ OPTIONAL_FIELDS: tuple[IntakeField, ...] = (
 )
 ALL_FIELDS: tuple[IntakeField, ...] = REQUIRED_FIELDS + OPTIONAL_FIELDS
 
+# Longest value a client may enter per field when editing the summary
+# (SCRUM-342). Mirrors SUMMARY_MAX_LENGTH in frontend/src/lib/intake/api.ts.
+SUMMARY_MAX_LENGTH: dict[IntakeField, int] = {
+    IntakeField.FACTS: 4000,
+    IntakeField.NICHE: 64,
+    IntakeField.PARTIES: 1000,
+    IntakeField.KEY_DATES: 1000,
+    IntakeField.URGENCY: 64,
+    IntakeField.CITY: 200,
+    IntakeField.BUDGET: 200,
+    IntakeField.DOCUMENTS: 1000,
+    IntakeField.DEADLINES: 1000,
+    IntakeField.PREFERRED_TIMES: 500,
+}
+
 FIELD_LABELS: dict[IntakeField, str] = {
     IntakeField.FACTS: "ماذا حدث",
     IntakeField.NICHE: "نوع القضية",

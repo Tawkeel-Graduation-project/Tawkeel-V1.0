@@ -34,10 +34,30 @@ from services.workflows.states import WorkflowKind, WorkflowStatus
 class IntakePhase(StrEnum):
     """Steps of the lawyer-request journey, stored in ``workflow.state["phase"]``.
 
-    Later stories add SUMMARY_REVIEW (SCRUM-250/251) and APPROVED (SCRUM-251).
+    INTAKE: the agent collects fields. SUMMARY_REVIEW: intake is complete and
+    the client may edit the summary. APPROVED: the client approved it; the
+    summary is frozen and may be sent to a lawyer (SCRUM-342 / SCRUM-251).
     """
 
     INTAKE = "INTAKE"
+    SUMMARY_REVIEW = "SUMMARY_REVIEW"
+    APPROVED = "APPROVED"
+
+
+# current phase -> phases it may move to. Anything not listed is forbidden.
+PHASE_TRANSITIONS: dict[IntakePhase, frozenset[IntakePhase]] = {
+    IntakePhase.INTAKE: frozenset({IntakePhase.SUMMARY_REVIEW}),
+    IntakePhase.SUMMARY_REVIEW: frozenset({IntakePhase.APPROVED}),
+    IntakePhase.APPROVED: frozenset(),
+}
+
+
+def can_advance_phase(current: str | None, target: str) -> bool:
+    """True if an intake in phase `current` may move to phase `target`."""
+    try:
+        return IntakePhase(target) in PHASE_TRANSITIONS[IntakePhase(current)]
+    except ValueError:
+        return False
 
 
 class ContextSource(StrEnum):

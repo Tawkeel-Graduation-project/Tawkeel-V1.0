@@ -1,6 +1,7 @@
 """Pydantic schemas for client portal endpoints."""
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, Literal
 
@@ -20,16 +21,57 @@ class ClientRequestResponse(BaseModel):
     status: RequestStatus
     client_confirmed_at: datetime | None
     created_at: datetime
+    # SCRUM-344: which intake it was sent from, and the lawyer's answer.
+    intake_id: uuid.UUID | None
+    lawyer_name: str | None = None
+    responded_at: datetime | None
+    decline_reason: str | None
 
     model_config = ConfigDict(from_attributes=True)
 
 
-class CreateClientRequest(BaseModel):
-    """Payload for submitting a new client request to a lawyer."""
+# --- Send to a lawyer (SCRUM-344) --------------------------------------------
+
+
+class LawyerSummaryResponse(BaseModel):
+    """A verified lawyer the client can send a request to."""
+
+    id: uuid.UUID  # lawyer_profiles.id
+    full_name: str | None
+    niches: list[str]
+    city: str | None
+    fee_min: int | None
+    fee_max: int | None
+    years_experience: int | None
+    bio: str | None
+
+
+class SendRequestBody(BaseModel):
+    """Send the approved summary to a lawyer; the server supplies the summary."""
 
     lawyer_id: uuid.UUID
-    niche: str | None = None
-    summary: dict[str, Any] | None = None
+
+
+class SentRequestResponse(BaseModel):
+    id: uuid.UUID
+    lawyer_id: uuid.UUID
+    status: RequestStatus
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class IntakeRequestResponse(BaseModel):
+    """A request sent from an intake, as shown on the intake."""
+
+    id: uuid.UUID
+    lawyer_id: uuid.UUID
+    status: RequestStatus
+    created_at: datetime
+    responded_at: datetime | None
+    decline_reason: str | None
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ClientCaseResponse(BaseModel):
@@ -142,9 +184,14 @@ class IntakeResponse(BaseModel):
     # When the client approved the summary (SCRUM-342); None until then.
     approved_at: datetime | None
     created_at: datetime
+    # SCRUM-344: the latest request sent from this intake, and older ones
+    # (oldest first).
+    request: IntakeRequestResponse | None
+    previous_requests: list[IntakeRequestResponse]
 
     @classmethod
-    def from_workflow(cls, wf: Any) -> "IntakeResponse":
+    def from_workflow(cls, wf: Any, requests: Sequence[Any] = ()) -> "IntakeResponse":
+        """``requests``: this intake's requests, oldest first."""
         state = wf.state or {}
         context = state.get("context") or {}
         intake = state.get("intake") or new_intake_state()
@@ -174,6 +221,12 @@ class IntakeResponse(BaseModel):
             complete=bool(intake.get("complete")),
             approved_at=(state.get("summary") or {}).get("approved_at"),
             created_at=wf.created_at,
+            request=(
+                IntakeRequestResponse.model_validate(requests[-1]) if requests else None
+            ),
+            previous_requests=[
+                IntakeRequestResponse.model_validate(r) for r in requests[:-1]
+            ],
         )
 
 

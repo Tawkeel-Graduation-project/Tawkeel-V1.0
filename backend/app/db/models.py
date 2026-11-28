@@ -3,7 +3,17 @@ from datetime import date, datetime, time
 
 from pgvector.sqlalchemy import Vector
 from services.requests.states import RequestStatus
-from sqlalchemy import ARRAY, CheckConstraint, ForeignKey, String, Text, func
+from sqlalchemy import (
+    ARRAY,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -62,13 +72,28 @@ class AvailabilityBlock(Base):
 
 class Request(Base):
     __tablename__ = "requests"
-    __table_args__ = (CheckConstraint(REQUEST_STATUS_CHECK, name="ck_requests_status"),)
+    __table_args__ = (
+        CheckConstraint(REQUEST_STATUS_CHECK, name="ck_requests_status"),
+        # One active (sent/accepted) request per intake (SCRUM-344).
+        Index(
+            "uq_requests_active_intake",
+            "intake_id",
+            unique=True,
+            postgresql_where=text("status IN ('sent', 'accepted')"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     lawyer_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("lawyer_profiles.id"))
     conversation_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("conversations.id")
+    )
+    # The intake workflow this request was sent from (SCRUM-344); None for
+    # older rows. use_alter: workflows.request_id -> requests is the other way.
+    intake_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("workflows.id", use_alter=True, name="fk_requests_intake_id"),
+        index=True,
     )
     niche: Mapped[str | None]
     summary: Mapped[dict | None] = mapped_column(JSONB)
@@ -77,6 +102,8 @@ class Request(Base):
         default=RequestStatus.SENT.value, server_default=RequestStatus.SENT.value
     )
     decline_reason: Mapped[str | None] = mapped_column(Text)
+    # When the lawyer accepted or declined (set by SCRUM-347).
+    responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     client_confirmed_at: Mapped[datetime | None]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 

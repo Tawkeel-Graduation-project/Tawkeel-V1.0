@@ -110,7 +110,11 @@ def test_nonexistent_client_resource_returns_404(
 # --- 3. Invalid Request Payload Negative Tests ---
 
 
-def test_create_client_request_missing_required_fields_returns_422(
+# Requests are created only by sending an approved intake (SCRUM-344).
+SEND_PATH = f"/client/intakes/{uuid.uuid4()}/send"
+
+
+def test_send_request_missing_required_fields_returns_422(
     client_user: User, mock_db: Mock
 ) -> None:
     app.dependency_overrides[get_current_user] = lambda: client_user
@@ -119,13 +123,13 @@ def test_create_client_request_missing_required_fields_returns_422(
     try:
         with TestClient(app, raise_server_exceptions=False) as client:
             # Missing lawyer_id
-            resp = client.post("/client/requests", json={"niche": "criminal"})
+            resp = client.post(SEND_PATH, json={"niche": "criminal"})
             assert resp.status_code == 422
     finally:
         app.dependency_overrides.clear()
 
 
-def test_create_client_request_invalid_json_body_returns_422(
+def test_send_request_invalid_json_body_returns_422(
     client_user: User, mock_db: Mock
 ) -> None:
     app.dependency_overrides[get_current_user] = lambda: client_user
@@ -134,7 +138,7 @@ def test_create_client_request_invalid_json_body_returns_422(
     try:
         with TestClient(app, raise_server_exceptions=False) as client:
             resp = client.post(
-                "/client/requests",
+                SEND_PATH,
                 content="not valid json",
                 headers={"Content-Type": "application/json"},
             )
@@ -151,6 +155,7 @@ def test_create_client_request_invalid_json_body_returns_422(
     [
         ("delete", "/client/requests"),
         ("put", "/client/requests"),
+        ("post", "/client/requests"),  # removed: use /client/intakes/{id}/send
         ("delete", "/lawyer/requests"),
         ("post", "/lawyer/requests"),
     ],

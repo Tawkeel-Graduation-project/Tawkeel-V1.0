@@ -133,8 +133,9 @@ def _status_default(engine) -> str | None:
 def test_migration_downgrade_and_upgrade(test_engine, monkeypatch) -> None:
     config = _alembic_config(monkeypatch)
     with test_engine.connect() as conn:
-        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == (
-            MIGRATION
+        # At MIGRATION or a later head (e.g. SCRUM-344's d5a1c9e7b203).
+        assert conn.scalar(text("SELECT version_num FROM alembic_version")) != (
+            PREVIOUS
         )
 
     with Session(test_engine) as session:

@@ -4,7 +4,8 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
+from services.requests.service import DECLINE_REASON_MAX_LENGTH
 from services.requests.states import RequestStatus
 
 
@@ -18,8 +19,36 @@ class LawyerRequestResponse(BaseModel):
     status: RequestStatus
     decline_reason: str | None
     created_at: datetime
+    # SCRUM-347
+    intake_id: uuid.UUID | None
+    responded_at: datetime | None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class LawyerDecisionResponse(LawyerRequestResponse):
+    """The request after the lawyer accepted or declined it (SCRUM-347)."""
+
+    # shortcut: always null until SCRUM-359 creates a case on acceptance.
+    case_id: uuid.UUID | None = None
+
+
+class DeclineRequestBody(BaseModel):
+    """Optional reason shown to the client; blank means no reason."""
+
+    reason: str | None = None
+
+    @field_validator("reason")
+    @classmethod
+    def _clean_reason(cls, value: str | None) -> str | None:
+        value = (value or "").strip()
+        if len(value) > DECLINE_REASON_MAX_LENGTH:
+            raise ValueError(
+                f"reason must be at most {DECLINE_REASON_MAX_LENGTH} characters"
+            )
+        if "\x00" in value:
+            raise ValueError("reason contains an invalid character")
+        return value or None
 
 
 class LawyerCaseResponse(BaseModel):

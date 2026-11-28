@@ -5,6 +5,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from services.audit.actions import AuditAction
 from services.audit.service import log_event
+from services.requests.service import accept_request, decline_request
+from services.requests.states import InvalidRequestTransitionError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -17,8 +19,10 @@ from app.auth.ownership import (
 from app.db.models import Case, Conversation, LawyerProfile, Request, User
 from app.db.session import get_db
 from app.lawyer.schemas import (
+    DeclineRequestBody,
     LawyerCaseResponse,
     LawyerConversationResponse,
+    LawyerDecisionResponse,
     LawyerRequestResponse,
     UpdateCaseNotesRequest,
 )
@@ -62,6 +66,53 @@ def get_lawyer_request(
     """Retrieve a single request assigned to the authenticated lawyer."""
     req = verify_request_ownership(db, request_id, current_user)
     return LawyerRequestResponse.model_validate(req)
+
+
+def _not_sent(exc: InvalidRequestTransitionError) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=f"This request is already {exc.current}",
+    )
+
+
+@router.post("/requests/{request_id}/accept", response_model=LawyerDecisionResponse)
+def accept_lawyer_request(
+    request_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_lawyer),
+) -> LawyerDecisionResponse:
+    """Accept a request sent to this lawyer (SCRUM-347). 409 unless it is sent."""
+    req = verify_request_ownership(db, request_id, current_user)
+    try:
+        accept_request(db, req, actor_id=current_user.id)
+    except InvalidRequestTransitionError as exc:
+        raise _not_sent(exc) from exc
+    db.commit()
+    db.refresh(req)
+    return LawyerDecisionResponse.model_validate(req)
+
+
+@router.post("/requests/{request_id}/decline", response_model=LawyerDecisionResponse)
+def decline_lawyer_request(
+    request_id: uuid.UUID,
+    payload: DeclineRequestBody | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_lawyer),
+) -> LawyerDecisionResponse:
+    """Decline a request sent to this lawyer (SCRUM-347). 409 unless it is sent.
+
+    The optional ``reason`` is shown to the client; the client may then send
+    the intake to another lawyer.
+    """
+    req = verify_request_ownership(db, request_id, current_user)
+    reason = payload.reason if payload else None
+    try:
+        decline_request(db, req, reason, actor_id=current_user.id)
+    except InvalidRequestTransitionError as exc:
+        raise _not_sent(exc) from exc
+    db.commit()
+    db.refresh(req)
+    return LawyerDecisionResponse.model_validate(req)
 
 
 @router.get("/cases", response_model=list[LawyerCaseResponse])

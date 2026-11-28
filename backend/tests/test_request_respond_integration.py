@@ -379,6 +379,13 @@ def test_concurrent_accept_and_decline_exactly_one_wins(test_engine) -> None:
             actions_logged = check.scalars(
                 select(AuditEvent.action).where(AuditEvent.request_id == req.id)
             ).all()
-            assert actions_logged == [f"request.{winner}"]
+            cases = check.scalars(select(Case).where(Case.request_id == req.id)).all()
+            # Accepting also opens the case in the same transaction (SCRUM-359).
+            if winner == "accepted":
+                assert sorted(actions_logged) == ["case.created", "request.accepted"]
+                assert len(cases) == 1
+            else:
+                assert actions_logged == ["request.declined"]
+                assert cases == []
     finally:
         _cleanup(test_engine, {owner.id, profile.user_id}, {wf.id})

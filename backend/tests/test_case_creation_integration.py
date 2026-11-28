@@ -336,11 +336,6 @@ def test_concurrent_accept_and_decline_open_at_most_one_case(test_engine) -> Non
             cases = check.scalars(select(Case).where(Case.request_id == req.id)).all()
             assert len(cases) == (1 if winner == "accepted" else 0)
     finally:
-        with test_engine.begin() as conn:
-            conn.execute(
-                text("DELETE FROM audit_events WHERE request_id = :r"), {"r": req.id}
-            )
-            conn.execute(text("DELETE FROM cases WHERE request_id = :r"), {"r": req.id})
         _cleanup(test_engine, {owner.id, profile.user_id}, {wf.id})
 
 

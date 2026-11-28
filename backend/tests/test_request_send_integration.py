@@ -453,16 +453,23 @@ def test_post_client_requests_no_longer_exists(api, db) -> None:
 
 
 def _cleanup(engine, user_ids, workflow_ids) -> None:
+    requests = "SELECT id FROM requests WHERE client_id = ANY(:u)"
+    cases = f"SELECT id FROM cases WHERE request_id IN ({requests})"
     with engine.begin() as conn:
         params = {"u": list(user_ids), "w": list(workflow_ids)}
         conn.execute(
             text(
                 "DELETE FROM audit_events WHERE actor_id = ANY(:u) "
-                "OR workflow_id = ANY(:w)"
+                f"OR workflow_id = ANY(:w) OR request_id IN ({requests}) "
+                f"OR case_id IN ({cases})"
             ),
             params,
         )
         conn.execute(text("DELETE FROM consents WHERE user_id = ANY(:u)"), params)
+        # An accepted request has a case (SCRUM-359) that must go first.
+        conn.execute(
+            text(f"DELETE FROM cases WHERE request_id IN ({requests})"), params
+        )
         conn.execute(text("DELETE FROM requests WHERE client_id = ANY(:u)"), params)
         conn.execute(text("DELETE FROM workflows WHERE id = ANY(:w)"), params)
         conn.execute(text("DELETE FROM conversations WHERE user_id = ANY(:u)"), params)

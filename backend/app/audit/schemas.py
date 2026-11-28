@@ -29,3 +29,20 @@ class AuditEventListResponse(BaseModel):
 
     events: list[AuditEventResponse]
     count: int
+
+
+class TimelineActor(BaseModel):
+    """Who did it: no email or other account details."""
+
+    id: uuid.UUID
+    role: str
+    name: str | None
+
+
+class TimelineEventResponse(BaseModel):
+    """One timeline entry: who did what, and when. Never the event's content."""
+
+    id: uuid.UUID
+    action: str
+    actor: TimelineActor | None
+    created_at: UTCDateTime

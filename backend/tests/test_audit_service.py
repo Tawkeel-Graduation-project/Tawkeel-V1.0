@@ -223,7 +223,7 @@ class TestListEventsForUser:
             id=other_request_id,
             client_id=uuid.uuid4(),  # Different client
             lawyer_id=uuid.uuid4(),
-            status="pending",
+            status="sent",
         )
         db = Mock(spec=Session)
         db.scalar.return_value = other_request

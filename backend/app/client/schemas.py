@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from services.intake.agent import new_intake_state
+from services.requests.states import RequestStatus
 
 
 class ClientRequestResponse(BaseModel):
@@ -15,7 +16,7 @@ class ClientRequestResponse(BaseModel):
     lawyer_id: uuid.UUID
     niche: str | None
     summary: dict[str, Any] | None
-    status: str
+    status: RequestStatus
     client_confirmed_at: datetime | None
     created_at: datetime
 

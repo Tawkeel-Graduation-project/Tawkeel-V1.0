@@ -8,6 +8,7 @@ from services.audit.service import log_event
 from services.intake.service import IntakeTurnError, take_turn
 from services.llm.factory import get_llm_provider
 from services.llm.provider import BaseLLMProvider
+from services.requests.states import RequestStatus
 from services.workflows.intake import (
     IntakeContextError,
     SubmittedMessage,
@@ -70,7 +71,7 @@ def create_client_request(
         lawyer_id=payload.lawyer_id,
         niche=payload.niche,
         summary=payload.summary,
-        status="pending",
+        status=RequestStatus.SENT,
     )
     db.add(new_request)
     db.flush()

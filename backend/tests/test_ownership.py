@@ -75,7 +75,7 @@ def test_client_can_access_own_request(client_user: User) -> None:
         id=req_id,
         client_id=client_user.id,
         lawyer_id=uuid.uuid4(),
-        status="pending",
+        status="sent",
     )
     db = Mock(spec=Session)
     db.scalar.return_value = req
@@ -92,7 +92,7 @@ def test_client_cannot_access_other_clients_request_returns_403(
         id=req_id,
         client_id=other_client.id,  # Owned by client 2
         lawyer_id=uuid.uuid4(),
-        status="pending",
+        status="sent",
     )
     db = Mock(spec=Session)
     db.scalar.return_value = req
@@ -112,7 +112,7 @@ def test_lawyer_can_access_assigned_request(lawyer_user: User) -> None:
         id=req_id,
         client_id=uuid.uuid4(),
         lawyer_id=profile_id,
-        status="pending",
+        status="sent",
     )
     db = Mock(spec=Session)
     # First scalar returns Request, second returns LawyerProfile
@@ -132,7 +132,7 @@ def test_lawyer_cannot_access_unassigned_request_returns_403(
         id=req_id,
         client_id=uuid.uuid4(),
         lawyer_id=uuid.uuid4(),  # Assigned to another lawyer
-        status="pending",
+        status="sent",
     )
     db = Mock(spec=Session)
     db.scalar.side_effect = [req, profile]
@@ -279,7 +279,7 @@ def test_admin_can_access_any_resource(admin_user: User, client_user: User) -> N
         id=req_id,
         client_id=client_user.id,
         lawyer_id=uuid.uuid4(),
-        status="pending",
+        status="sent",
     )
     db = Mock(spec=Session)
     db.scalar.return_value = req
@@ -298,7 +298,7 @@ def test_http_client_get_request_forbidden_for_other_user(
         id=req_id,
         client_id=other_client.id,
         lawyer_id=uuid.uuid4(),
-        status="pending",
+        status="sent",
     )
     db = Mock(spec=Session)
     db.scalar.return_value = req

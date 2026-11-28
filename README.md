@@ -61,12 +61,13 @@ docker compose up -d db
 cd backend
 uv sync --locked
 set -a; . ../.env; set +a
+export PYTHONPATH=..
 uv run alembic upgrade head
 uv run python -m scripts.seed
 uv run uvicorn app.main:app --reload
 ```
 
-Run `set -a; . ../.env; set +a` in the same shell after changing to `backend/`. It works in bash and zsh, exports the assignments, and ignores the comments and blank lines in `.env`. Alembic and the seed script read `DATABASE_URL` from the shell environment only; they do not load `.env` themselves.
+Run `set -a; . ../.env; set +a` in the same shell after changing to `backend/`. It works in bash and zsh, exports the assignments, and ignores the comments and blank lines in `.env`. Alembic and the seed script read `DATABASE_URL` from the shell environment only; they do not load `.env` themselves. `export PYTHONPATH=..` puts the repository root on the import path, because the app, the seed script and the models import the shared `services/` package that sits next to `backend/` (the Docker image sets `PYTHONPATH=/app` for the same reason).
 
 The seed command is for development only. It creates synthetic client, lawyer, and admin accounts with `.test` email addresses. Login accepts these reserved addresses; registration still validates email addresses with `EmailStr`.
 
@@ -103,6 +104,7 @@ Run Alembic from `backend/`, where `alembic.ini` and the application package are
 ```sh
 cd backend
 set -a; . ../.env; set +a
+export PYTHONPATH=..
 uv run alembic upgrade head
 uv run python -m scripts.seed
 ```

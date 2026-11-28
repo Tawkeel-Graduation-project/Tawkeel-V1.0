@@ -155,7 +155,7 @@ def test_horizontal_escalation_client_cannot_access_other_client_request(
         id=stolen_request_id,
         client_id=victim_client_id,
         lawyer_id=uuid.uuid4(),
-        status="pending",
+        status="sent",
     )
 
     mock_db.scalar.return_value = victim_request

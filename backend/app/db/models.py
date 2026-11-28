@@ -2,11 +2,16 @@ import uuid
 from datetime import date, datetime, time
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import ARRAY, ForeignKey, String, Text, func
+from services.requests.states import RequestStatus
+from sqlalchemy import ARRAY, CheckConstraint, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+
+REQUEST_STATUS_CHECK = "status IN ({})".format(
+    ", ".join(f"'{s.value}'" for s in RequestStatus)
+)
 
 
 class User(Base):
@@ -57,6 +62,7 @@ class AvailabilityBlock(Base):
 
 class Request(Base):
     __tablename__ = "requests"
+    __table_args__ = (CheckConstraint(REQUEST_STATUS_CHECK, name="ck_requests_status"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
@@ -66,8 +72,10 @@ class Request(Base):
     )
     niche: Mapped[str | None]
     summary: Mapped[dict | None] = mapped_column(JSONB)
-    status: Mapped[str] = mapped_column(default="pending")
-    # pending | accepted | declined | expired | cancelled
+    # sent | accepted | declined | expired | cancelled (services.requests.states)
+    status: Mapped[str] = mapped_column(
+        default=RequestStatus.SENT.value, server_default=RequestStatus.SENT.value
+    )
     decline_reason: Mapped[str | None] = mapped_column(Text)
     client_confirmed_at: Mapped[datetime | None]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())

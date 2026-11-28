@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
+from services.requests.states import RequestStatus
 
 
 class LawyerRequestResponse(BaseModel):
@@ -14,7 +15,7 @@ class LawyerRequestResponse(BaseModel):
     client_id: uuid.UUID
     niche: str | None
     summary: dict[str, Any] | None
-    status: str
+    status: RequestStatus
     decline_reason: str | None
     created_at: datetime
 

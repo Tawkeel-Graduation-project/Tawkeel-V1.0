@@ -395,7 +395,9 @@ function fromResponse(data: IntakeResponse): Intake {
 
 const statusErrors: Record<number, IntakeErrorCode> = {
   401: "unauthorized",
-  403: "forbidden",
+  // Backend convention: another client's intake/request returns 403. Show it
+  // exactly like 404, so the page never confirms that the item exists.
+  403: "not_found",
   404: "not_found",
   409: "conflict",
   422: "no_answer",

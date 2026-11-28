@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Briefcase, CheckCircle2, MapPin, Send, Sparkles, UserRound, Wallet } from "lucide-react";
+import { Briefcase, CheckCircle2, MapPin, RotateCcw, Send, Sparkles, UserRound, Wallet } from "lucide-react";
 import {
+  declinedLawyerIds,
   getIntake,
   IntakeError,
   listLawyers,
@@ -12,8 +13,36 @@ import {
 } from "@/lib/intake/api";
 import { intakeErrorCopy } from "@/lib/intake/copy";
 import { NICHE_LABELS } from "@/lib/intake/fields";
-import { Alert, Badge, Button, Card, CardBody, CardHeader, ErrorState, LoadingState } from "@/components/ui";
+import {
+  Alert,
+  Badge,
+  Button,
+  ButtonLink,
+  Card,
+  CardBody,
+  CardHeader,
+  ErrorState,
+  LoadingState,
+} from "@/components/ui";
 import { cn } from "@/lib/cn";
+import {
+  REQUEST_STATUS_LABELS,
+  REQUEST_STATUS_MESSAGES,
+  canChooseAnotherLawyer,
+  isAwaitingLawyer,
+  type RequestStatus,
+} from "@/lib/requests/status";
+import { MockLawyerResponse } from "@/components/requests/mock-lawyer-response";
+import { RequestStatusBadge, formatRequestDate } from "@/components/requests/request-status-badge";
+
+const STATUS_ALERT_TONES: Record<RequestStatus, "info" | "success" | "danger" | "warning"> = {
+  sent: "info",
+  pending: "info",
+  accepted: "success",
+  declined: "danger",
+  expired: "warning",
+  cancelled: "warning",
+};
 
 interface LawyerSelectionProps {
   intake: Intake;
@@ -31,13 +60,19 @@ type LoadState =
  * a simple list (January: the seeded, verified lawyers) and send the request.
  *
  * Only the lawyer id is sent; the server attaches the approved summary
- * (SCRUM-344) and sets the status to SENT (SCRUM-346). Each intake is sent once.
+ * (SCRUM-344) and sets the status to SENT (SCRUM-346).
+ * Once sent, it shows the request's current status (SCRUM-349). If the lawyer
+ * declines, the client may choose another lawyer (lawyers who declined are
+ * hidden); that creates a new request with the same approved summary.
  */
 export function LawyerSelection({ intake, token, onChange }: LawyerSelectionProps) {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  /** After a decline: the client chose to pick another lawyer. */
+  const [choosingAgain, setChoosingAgain] = useState(false);
 
   const load = useCallback(async () => {
     setState({ status: "loading" });
@@ -56,7 +91,17 @@ export function LawyerSelection({ intake, token, onChange }: LawyerSelectionProp
   }, [load]);
 
   const caseNiche = intake.fields.niche?.status === "provided" ? intake.fields.niche.value : null;
-  const lawyers = state.status === "success" ? sortByMatch(state.lawyers, caseNiche) : [];
+  // Lawyers who already declined this intake are not offered again.
+  const declined = declinedLawyerIds(intake);
+  const lawyers =
+    state.status === "success"
+      ? sortByMatch(
+          state.lawyers.filter((l) => !declined.includes(l.id)),
+          caseNiche,
+        )
+      : [];
+  const nameOf = (lawyerId: string) =>
+    state.status === "success" ? state.lawyers.find((l) => l.id === lawyerId)?.fullName : undefined;
   const selected = lawyers.find((l) => l.id === selectedId) ?? null;
 
   async function send() {
@@ -65,6 +110,8 @@ export function LawyerSelection({ intake, token, onChange }: LawyerSelectionProp
     setError(null);
     try {
       onChange(await sendIntakeToLawyer(intake.id, selected.id, token));
+      setChoosingAgain(false);
+      setSelectedId(null);
     } catch (err) {
       const code = err instanceof IntakeError ? err.code : "unknown";
       setError(intakeErrorCopy[code]);
@@ -93,32 +140,88 @@ export function LawyerSelection({ intake, token, onChange }: LawyerSelectionProp
         </span>
       }
       description={
-        intake.request
-          ? "أُرسل طلبك. سيصلك إشعار عندما يرد المحامي."
-          : "اختر محامياً واحداً لإرسال ملخصك الموافق عليه إليه."
+        intake.request && !choosingAgain
+          ? "أُرسل طلبك. تظهر هنا حالته الحالية."
+          : choosingAgain
+            ? "اختر محامياً آخر. سيُرسل إليه الملخص نفسه الذي وافقت عليه."
+            : "اختر محامياً واحداً لإرسال ملخصك الموافق عليه إليه."
       }
-      action={
-        intake.request ? (
-          <Badge tone="success" data-request-status={intake.request.status}>
-            <Send aria-hidden className="size-3" />
-            تم الإرسال
-          </Badge>
-        ) : null
-      }
+      action={intake.request && !choosingAgain ? <RequestStatusBadge status={intake.request.status} /> : null}
     />
   );
 
-  // Already sent: show where it went, and nothing else to click.
-  if (intake.request) {
-    const sentTo =
-      state.status === "success" ? state.lawyers.find((l) => l.id === intake.request?.lawyerId) : undefined;
+  // Already sent: show where it went and its current status (SCRUM-349).
+  if (intake.request && !choosingAgain) {
+    const request = intake.request;
+    const lawyerName = nameOf(request.lawyerId) ?? "المحامي الذي اخترته";
+    const awaiting = isAwaitingLawyer(request.status);
+    const canChooseAnother = canChooseAnotherLawyer(request.status);
+
+    const refresh = async () => {
+      setRefreshing(true);
+      try {
+        onChange(await getIntake(intake.id, token));
+      } catch {
+        /* keep the current view */
+      } finally {
+        setRefreshing(false);
+      }
+    };
+
     return (
       <Card id="lawyer-selection" className="mt-4">
         {header}
-        <CardBody>
-          <Alert tone="success" title={`أُرسل طلبك إلى ${sentTo?.fullName ?? "المحامي الذي اخترته"}`}>
-            حالة الطلب: مُرسل. لا يمكن إرسال الطلب نفسه مرة أخرى.
+        <CardBody className="space-y-3">
+          <Alert tone={STATUS_ALERT_TONES[request.status]} title={`طلبك إلى ${lawyerName}: ${REQUEST_STATUS_LABELS[request.status]}`}>
+            {REQUEST_STATUS_MESSAGES[request.status]}
+            {request.status === "declined" && request.declineReason ? (
+              <span className="mt-1 block">
+                <span className="font-semibold">سبب الاعتذار: </span>
+                <span dir="auto">{request.declineReason}</span>
+              </span>
+            ) : null}
           </Alert>
+          <p className="text-xs text-muted">
+            أُرسل في {formatRequestDate(request.createdAt)}
+            {request.respondedAt ? <> · الرد في {formatRequestDate(request.respondedAt)}</> : null}
+          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            {awaiting ? (
+              <MockLawyerResponse
+                requestId={request.id}
+                onDone={() => void refresh()}
+              />
+            ) : (
+              <span />
+            )}
+            <div className="flex flex-wrap gap-2">
+              <ButtonLink href="/client/requests" variant="ghost" size="sm">
+                كل طلباتي
+              </ButtonLink>
+              {canChooseAnother ? (
+                <Button
+                  size="sm"
+                  icon={<UserRound aria-hidden className="size-3.5" />}
+                  onClick={() => {
+                    setError(null);
+                    setSelectedId(null);
+                    setChoosingAgain(true);
+                  }}
+                >
+                  اختيار محامٍ آخر
+                </Button>
+              ) : null}
+              <Button
+                variant="secondary"
+                size="sm"
+                loading={refreshing}
+                icon={<RotateCcw aria-hidden className="size-3.5" />}
+                onClick={() => void refresh()}
+              >
+                تحديث الحالة
+              </Button>
+            </div>
+          </div>
         </CardBody>
       </Card>
     );
@@ -128,12 +231,24 @@ export function LawyerSelection({ intake, token, onChange }: LawyerSelectionProp
     <Card id="lawyer-selection" className="mt-4">
       {header}
       <CardBody className="space-y-4">
+        {choosingAgain && declined.length > 0 ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-surface-muted px-3 py-2 text-sm">
+            <span className="text-muted">
+              لن يظهر في القائمة من اعتذر عن طلبك:{" "}
+              <span dir="auto">{declined.map((id) => nameOf(id) ?? "محامٍ").join("، ")}</span>
+            </span>
+            <Button variant="ghost" size="sm" onClick={() => setChoosingAgain(false)} disabled={sending}>
+              رجوع
+            </Button>
+          </div>
+        ) : null}
+
         {state.status === "loading" ? (
           <LoadingState label="جارٍ تحميل قائمة المحامين…" className="py-8" />
         ) : state.status === "error" ? (
           <ErrorState title="تعذّر تحميل قائمة المحامين" description={state.message} onRetry={load} />
         ) : lawyers.length === 0 ? (
-          <Alert tone="info" title="لا يوجد محامون متاحون حالياً">
+          <Alert tone="info" title={choosingAgain ? "لا يوجد محامون آخرون متاحون حالياً" : "لا يوجد محامون متاحون حالياً"}>
             حاول مرة أخرى لاحقاً.
           </Alert>
         ) : (

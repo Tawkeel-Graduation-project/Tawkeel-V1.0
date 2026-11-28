@@ -30,9 +30,21 @@
  *   POST {API}/client/intakes/{id}/send   { lawyer_id }
  *     201 -> SentRequest (status "sent"; the server copies the APPROVED
  *            summary itself, the browser never sends the summary)
- *     409 -> summary not approved yet, or this intake was already sent
+ *     409 -> summary not approved yet; or the latest request is still
+ *            waiting / accepted; or this lawyer already declined this intake
  *     404 -> lawyer not found or not verified
- *   The intake response carries `request` (null until sent).
+ *   Sending again is allowed only after the latest request was declined
+ *   (or expired): it creates a NEW request; the old one stays as history.
+ *   The intake response carries `request` (latest, null until sent) and
+ *   `previous_requests` (earlier declined/expired ones, oldest first).
+ *
+ * Request status for the client (SCRUM-349 screen; transitions SCRUM-347):
+ *
+ *   GET {API}/client/requests   (exists today)
+ *     200 -> [{ id, lawyer_id, niche, status, created_at,
+ *               intake_id?, lawyer_name?, responded_at?, decline_reason? }]
+ *   status: sent -> accepted | declined. `request` on the intake response
+ *   carries the same status, responded_at and decline_reason.
  *
  * Until chat is saved server-side, the browser sends the transcript; the
  * backend stores it and marks it `client_submitted`. The returned
@@ -48,6 +60,12 @@ import {
   type IntakeFieldKey,
   type IntakeFieldStatus,
 } from "./fields";
+import {
+  canChooseAnotherLawyer,
+  isAwaitingLawyer,
+  toRequestStatus,
+  type RequestStatus,
+} from "@/lib/requests/status";
 
 export type IntakePhase = "INTAKE";
 export type IntakeContextSource = "server" | "client_submitted";
@@ -83,8 +101,10 @@ export interface Intake {
   complete: boolean;
   /** When the client approved the summary (SCRUM-341/342); null until then. */
   approvedAt: string | null;
-  /** The request sent to a lawyer (SCRUM-345); null until sent. */
+  /** The latest request sent to a lawyer (SCRUM-345); null until sent. */
   request: SentRequest | null;
+  /** Earlier requests for this intake that were declined/expired, oldest first. */
+  previousRequests: SentRequest[];
   createdAt: string;
 }
 
@@ -104,8 +124,27 @@ export interface Lawyer {
 export interface SentRequest {
   id: string;
   lawyerId: string;
-  status: "sent";
+  /** sent → accepted / declined (SCRUM-347). */
+  status: RequestStatus;
   createdAt: string;
+  /** When the lawyer accepted or declined; null while waiting. */
+  respondedAt: string | null;
+  /** Optional reason the lawyer gave when declining. */
+  declineReason: string | null;
+}
+
+/** One row of the client's "My requests" page (SCRUM-349). */
+export interface ClientRequest {
+  id: string;
+  /** The request page (/client/requests/{intakeId}); null for requests made before intakes existed. */
+  intakeId: string | null;
+  lawyerId: string;
+  lawyerName: string | null;
+  niche: string | null;
+  status: RequestStatus;
+  createdAt: string;
+  respondedAt: string | null;
+  declineReason: string | null;
 }
 
 /** The summary as the client edits and approves it: one value per field, null = not provided. */
@@ -211,6 +250,35 @@ export function sendIntakeToLawyer(id: string, lawyerId: string, token: string |
   return API_URL ? real.send(id, lawyerId, token) : mock.send(id, lawyerId);
 }
 
+/** Lawyers who already declined this intake: they are not offered again. */
+export function declinedLawyerIds(intake: Intake): string[] {
+  return [...intake.previousRequests, ...(intake.request ? [intake.request] : [])]
+    .filter((r) => r.status === "declined")
+    .map((r) => r.lawyerId);
+}
+
+/** All requests the client has sent, newest first (SCRUM-349). */
+export function listClientRequests(token: string | null): Promise<ClientRequest[]> {
+  return API_URL ? real.requests(token) : mock.requests();
+}
+
+/** True when there is no backend: the browser-only practice mode. */
+export const isMockMode = !API_URL;
+
+/**
+ * DEV ONLY (practice mode): play the lawyer and accept or decline a sent
+ * request, until the lawyer screen (SCRUM-348) exists. Not available with a
+ * backend; follows the same rule as SCRUM-347: only a waiting request moves.
+ */
+export function mockRespondToRequest(
+  requestId: string,
+  decision: "accepted" | "declined",
+  declineReason?: string,
+): Promise<ClientRequest> {
+  if (API_URL) return Promise.reject(new IntakeError("unknown"));
+  return mock.respond(requestId, decision, declineReason);
+}
+
 /** The current summary values of an intake (null for missing / not provided). */
 export function summaryValues(intake: Intake): IntakeSummaryValues {
   return Object.fromEntries(
@@ -240,14 +308,35 @@ interface IntakeResponse {
   approved_at?: string | null;
   /** Added by SCRUM-344; treated as null while the backend doesn't send it. */
   request?: SentRequestResponse | null;
+  /** Added with "choose another lawyer"; treated as [] while the backend doesn't send it. */
+  previous_requests?: SentRequestResponse[] | null;
   created_at: string;
 }
 
 interface SentRequestResponse {
   id: string;
   lawyer_id: string;
-  status: "sent";
+  status: string;
   created_at: string;
+  /** Added by SCRUM-347; treated as null while the backend doesn't send them. */
+  responded_at?: string | null;
+  decline_reason?: string | null;
+}
+
+/** GET /client/requests row (exists today; the optional fields come with SCRUM-347/349). */
+interface ClientRequestResponse extends SentRequestResponse {
+  niche: string | null;
+  intake_id?: string | null;
+  lawyer_name?: string | null;
+}
+
+function fromClientRequest(data: ClientRequestResponse): ClientRequest {
+  return {
+    ...fromRequest(data),
+    intakeId: data.intake_id ?? null,
+    lawyerName: data.lawyer_name ?? null,
+    niche: data.niche,
+  };
 }
 
 interface LawyerResponse {
@@ -262,7 +351,14 @@ interface LawyerResponse {
 }
 
 function fromRequest(data: SentRequestResponse): SentRequest {
-  return { id: data.id, lawyerId: data.lawyer_id, status: data.status, createdAt: data.created_at };
+  return {
+    id: data.id,
+    lawyerId: data.lawyer_id,
+    status: toRequestStatus(data.status),
+    createdAt: data.created_at,
+    respondedAt: data.responded_at ?? null,
+    declineReason: data.decline_reason ?? null,
+  };
 }
 
 function fromLawyer(data: LawyerResponse): Lawyer {
@@ -292,6 +388,7 @@ function fromResponse(data: IntakeResponse): Intake {
     complete: data.complete,
     approvedAt: data.approved_at ?? null,
     request: data.request ? fromRequest(data.request) : null,
+    previousRequests: (data.previous_requests ?? []).map(fromRequest),
     createdAt: data.created_at,
   };
 }
@@ -393,7 +490,15 @@ const real = {
     // Re-read the intake so the page shows the request exactly as stored.
     return real.get(id, token);
   },
+  async requests(token: string | null) {
+    const data = (await callJson("/client/requests", token)) as ClientRequestResponse[];
+    return newestFirst(data.map(fromClientRequest));
+  },
 };
+
+function newestFirst(requests: ClientRequest[]): ClientRequest[] {
+  return [...requests].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
 
 // --- browser-only mock --------------------------------------------------------
 const MOCK_KEY = "tawkeel.mockIntakes";
@@ -441,6 +546,7 @@ const mock = {
       complete: false,
       approvedAt: null,
       request: null,
+      previousRequests: [],
       createdAt: new Date().toISOString(),
     };
     writeAll([...all, intake]);
@@ -541,20 +647,63 @@ const mock = {
     const index = all.findIndex((i) => i.id === id);
     if (index < 0) throw new IntakeError("not_found");
     const intake = withIntakeDefaults(all[index]);
-    // Nothing reaches a lawyer before approval, and each intake is sent once.
-    if (!intake.approvedAt || intake.request) throw new IntakeError("conflict");
+    // Nothing reaches a lawyer before approval. A second send is only allowed
+    // after the latest lawyer declined, and never to a lawyer who declined it.
+    if (!intake.approvedAt) throw new IntakeError("conflict");
+    if (intake.request && !canChooseAnotherLawyer(intake.request.status)) throw new IntakeError("conflict");
+    if (declinedLawyerIds(intake).includes(lawyerId)) throw new IntakeError("conflict");
     if (!MOCK_LAWYERS.some((l) => l.id === lawyerId)) throw new IntakeError("lawyer_unavailable");
+    if (intake.request) intake.previousRequests = [...intake.previousRequests, intake.request];
     intake.request = {
       id: crypto.randomUUID(),
       lawyerId,
       status: "sent",
       createdAt: new Date().toISOString(),
+      respondedAt: null,
+      declineReason: null,
     };
     all[index] = intake;
     writeAll(all);
     return intake;
   },
+
+  async requests(): Promise<ClientRequest[]> {
+    await delay();
+    return newestFirst(
+      readAll()
+        .map(withIntakeDefaults)
+        .flatMap((i) => [...i.previousRequests, ...(i.request ? [i.request] : [])].map((r) => mockClientRequest(i, r))),
+    );
+  },
+
+  async respond(requestId: string, decision: "accepted" | "declined", reason?: string): Promise<ClientRequest> {
+    await delay();
+    const all = readAll();
+    const index = all.findIndex((i) => i.request?.id === requestId);
+    if (index < 0) throw new IntakeError("not_found");
+    const intake = withIntakeDefaults(all[index]);
+    const request = intake.request!;
+    if (!isAwaitingLawyer(request.status)) throw new IntakeError("conflict");
+    intake.request = {
+      ...request,
+      status: decision,
+      respondedAt: new Date().toISOString(),
+      declineReason: decision === "declined" ? (reason?.trim() || null) : null,
+    };
+    all[index] = intake;
+    writeAll(all);
+    return mockClientRequest(intake, intake.request);
+  },
 };
+
+function mockClientRequest(intake: Intake, request: SentRequest): ClientRequest {
+  return {
+    ...request,
+    intakeId: intake.id,
+    lawyerName: MOCK_LAWYERS.find((l) => l.id === request.lawyerId)?.fullName ?? null,
+    niche: intake.fields.niche?.status === "provided" ? intake.fields.niche.value : null,
+  };
+}
 
 /** The verified lawyers from backend/scripts/seed.py (Omar is unverified, so not listed). */
 const MOCK_LAWYERS: Lawyer[] = [
@@ -605,7 +754,18 @@ function withIntakeDefaults(intake: Intake): Intake {
     turns: [...(intake.turns ?? [])],
     complete: Boolean(intake.complete),
     approvedAt: intake.approvedAt ?? null,
-    request: intake.request ?? null,
+    // Requests saved by earlier mocks lack the newer fields.
+    request: intake.request ? withRequestDefaults(intake.request) : null,
+    previousRequests: (intake.previousRequests ?? []).map(withRequestDefaults),
+  };
+}
+
+function withRequestDefaults(request: SentRequest): SentRequest {
+  return {
+    ...request,
+    status: toRequestStatus(request.status),
+    respondedAt: request.respondedAt ?? null,
+    declineReason: request.declineReason ?? null,
   };
 }
 

@@ -2,11 +2,16 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from services.audit.actions import AuditAction
 from services.audit.service import log_event
+from services.requests.inbox import (
+    INBOX_DEFAULT_LIMIT,
+    INBOX_MAX_LIMIT,
+    lawyer_inbox,
+)
 from services.requests.service import accept_request, decline_request
-from services.requests.states import InvalidRequestTransitionError
+from services.requests.states import InvalidRequestTransitionError, RequestStatus
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -16,7 +21,7 @@ from app.auth.ownership import (
     verify_conversation_ownership,
     verify_request_ownership,
 )
-from app.db.models import Case, Conversation, LawyerProfile, Request, User
+from app.db.models import Case, Conversation, LawyerProfile, User
 from app.db.session import get_db
 from app.lawyer.schemas import (
     DeclineRequestBody,
@@ -43,17 +48,21 @@ def _get_lawyer_profile(db: Session, user: User) -> LawyerProfile:
 
 @router.get("/requests", response_model=list[LawyerRequestResponse])
 def list_lawyer_requests(
+    request_status: RequestStatus | None = Query(default=None, alias="status"),
+    limit: int = Query(default=INBOX_DEFAULT_LIMIT, ge=1, le=INBOX_MAX_LIMIT),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_lawyer),
 ) -> list[LawyerRequestResponse]:
-    """Retrieve all requests assigned to the authenticated lawyer."""
+    """The lawyer's inbox, newest first (SCRUM-358).
+
+    ``?status=sent`` filters by status (422 if not a request status). Each
+    item carries only the approved summary snapshot the client sent.
+    """
     profile = _get_lawyer_profile(db, current_user)
-    stmt = (
-        select(Request)
-        .where(Request.lawyer_id == profile.id)
-        .order_by(Request.created_at.desc())
+    records = lawyer_inbox(
+        db, profile.id, status=request_status, limit=limit, offset=offset
     )
-    records = db.scalars(stmt).all()
     return [LawyerRequestResponse.model_validate(r) for r in records]
 
 
@@ -63,7 +72,10 @@ def get_lawyer_request(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_lawyer),
 ) -> LawyerRequestResponse:
-    """Retrieve a single request assigned to the authenticated lawyer."""
+    """One request assigned to this lawyer, with the approved summary snapshot.
+
+    403 if it is another lawyer's, 404 if it doesn't exist.
+    """
     req = verify_request_ownership(db, request_id, current_user)
     return LawyerRequestResponse.model_validate(req)
 

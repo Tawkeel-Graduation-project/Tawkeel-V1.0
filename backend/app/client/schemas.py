@@ -10,6 +10,8 @@ from services.intake.agent import new_intake_state
 from services.intake.fields import ALL_FIELDS
 from services.requests.states import RequestStatus
 
+from app.core.timestamps import UTCDateTime
+
 
 class ClientRequestResponse(BaseModel):
     """Client representation of a service request."""
@@ -19,12 +21,12 @@ class ClientRequestResponse(BaseModel):
     niche: str | None
     summary: dict[str, Any] | None
     status: RequestStatus
-    client_confirmed_at: datetime | None
-    created_at: datetime
+    client_confirmed_at: UTCDateTime | None
+    created_at: UTCDateTime
     # SCRUM-344: which intake it was sent from, and the lawyer's answer.
     intake_id: uuid.UUID | None
     lawyer_name: str | None = None
-    responded_at: datetime | None
+    responded_at: UTCDateTime | None
     decline_reason: str | None
 
     model_config = ConfigDict(from_attributes=True)
@@ -56,7 +58,7 @@ class SentRequestResponse(BaseModel):
     id: uuid.UUID
     lawyer_id: uuid.UUID
     status: RequestStatus
-    created_at: datetime
+    created_at: UTCDateTime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -67,8 +69,8 @@ class IntakeRequestResponse(BaseModel):
     id: uuid.UUID
     lawyer_id: uuid.UUID
     status: RequestStatus
-    created_at: datetime
-    responded_at: datetime | None
+    created_at: UTCDateTime
+    responded_at: UTCDateTime | None
     decline_reason: str | None
 
     model_config = ConfigDict(from_attributes=True)
@@ -182,8 +184,8 @@ class IntakeResponse(BaseModel):
     turns: list[IntakeTurn]
     complete: bool
     # When the client approved the summary (SCRUM-342); None until then.
-    approved_at: datetime | None
-    created_at: datetime
+    approved_at: UTCDateTime | None
+    created_at: UTCDateTime
     # SCRUM-344: the latest request sent from this intake, and older ones
     # (oldest first).
     request: IntakeRequestResponse | None

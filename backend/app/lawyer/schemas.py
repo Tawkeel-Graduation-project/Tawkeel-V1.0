@@ -8,9 +8,16 @@ from pydantic import BaseModel, ConfigDict, field_validator
 from services.requests.service import DECLINE_REASON_MAX_LENGTH
 from services.requests.states import RequestStatus
 
+from app.core.timestamps import UTCDateTime
+
 
 class LawyerRequestResponse(BaseModel):
-    """Lawyer representation of an incoming client request."""
+    """Lawyer representation of an incoming client request.
+
+    Privacy (SCRUM-358): a lawyer sees only the approved summary snapshot
+    (``summary``), never the intake transcript, chat messages, edit history or
+    anything from before approval. Don't add conversation_id or similar here.
+    """
 
     id: uuid.UUID
     client_id: uuid.UUID
@@ -18,10 +25,10 @@ class LawyerRequestResponse(BaseModel):
     summary: dict[str, Any] | None
     status: RequestStatus
     decline_reason: str | None
-    created_at: datetime
+    created_at: UTCDateTime
     # SCRUM-347
     intake_id: uuid.UUID | None
-    responded_at: datetime | None
+    responded_at: UTCDateTime | None
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -164,7 +164,7 @@ def test_accept_happy_path(api, db) -> None:
     assert data["client_id"] == str(owner.id)
     assert data["responded_at"] is not None
     assert data["decline_reason"] is None
-    assert data["case_id"] is None
+    assert data["case_id"] is not None  # SCRUM-359 opens the case
 
     req = _stored(db, request_id)
     assert req.status == "accepted"
@@ -172,8 +172,8 @@ def test_accept_happy_path(api, db) -> None:
     (event,) = [e for e in _events(db, request_id) if e.action == "request.accepted"]
     assert event.actor_id == lawyer.id
     assert event.after == {"status": "accepted"}
-    # No case yet: that's SCRUM-359.
-    assert db.scalars(select(Case).where(Case.request_id == req.id)).all() == []
+    (case,) = db.scalars(select(Case).where(Case.request_id == req.id)).all()
+    assert str(case.id) == data["case_id"]
 
 
 def test_decline_with_reason_keeps_it_out_of_the_audit_log(api, db) -> None:

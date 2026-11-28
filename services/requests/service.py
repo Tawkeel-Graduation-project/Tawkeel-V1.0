@@ -1,12 +1,14 @@
-"""Request status transitions with an audit event (SCRUM-346, SCRUM-347)."""
+"""Request status transitions with an audit event (SCRUM-346/347/359)."""
 
+import copy
 import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.db.models import Request
+from app.db.models import Case, Request
 from services.audit.actions import AuditAction
 from services.audit.service import log_event
 from services.requests.states import RequestStatus, assert_transition
@@ -57,15 +59,51 @@ def transition_request(
 DECLINE_REASON_MAX_LENGTH = 500
 
 
-def accept_request(db: Session, request: Request, *, actor_id: uuid.UUID) -> Request:
-    """The lawyer accepts a ``sent`` request. The caller commits.
+CASE_REQUEST_UNIQUE = "cases_request_id_key"
+
+
+class CaseExistsError(Exception):
+    """A case already exists for this request (HTTP 409)."""
+
+
+def accept_request(db: Session, request: Request, *, actor_id: uuid.UUID) -> Case:
+    """The lawyer accepts a ``sent`` request, which opens its case (SCRUM-359).
+
+    The case summary is the request's approved snapshot only. The case is not
+    linked to the intake conversation or workflow (``conversations.case_id``
+    and ``workflows.case_id`` stay unset), so the lawyer can never reach the
+    intake chat or its audit events; the link is case -> request ->
+    request.conversation_id. The caller commits; if anything fails, the
+    acceptance rolls back with the case.
 
     Raises:
         InvalidRequestTransitionError: the request is no longer ``sent``.
+        CaseExistsError: the request already has a case.
     """
     transition_request(db, request, RequestStatus.ACCEPTED, actor_id)
     request.responded_at = datetime.now(UTC)
-    return request
+    case = Case(
+        request_id=request.id,
+        lawyer_id=request.lawyer_id,
+        status="open",
+        summary=copy.deepcopy(request.summary),
+    )
+    db.add(case)
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        if CASE_REQUEST_UNIQUE in str(exc.orig):
+            raise CaseExistsError("A case already exists for this request") from exc
+        raise
+    log_event(
+        db,
+        actor_id=actor_id,
+        action=AuditAction.CASE_CREATED,
+        case_id=case.id,
+        request_id=request.id,
+        after={"status": case.status},
+    )
+    return case
 
 
 def decline_request(

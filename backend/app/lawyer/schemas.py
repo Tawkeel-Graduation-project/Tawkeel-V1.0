@@ -1,7 +1,6 @@
 """Pydantic schemas for lawyer portal endpoints."""
 
 import uuid
-from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, field_validator
@@ -29,15 +28,10 @@ class LawyerRequestResponse(BaseModel):
     # SCRUM-347
     intake_id: uuid.UUID | None
     responded_at: UTCDateTime | None
+    # SCRUM-359: the case opened when the lawyer accepted; null otherwise.
+    case_id: uuid.UUID | None = None
 
     model_config = ConfigDict(from_attributes=True)
-
-
-class LawyerDecisionResponse(LawyerRequestResponse):
-    """The request after the lawyer accepted or declined it (SCRUM-347)."""
-
-    # shortcut: always null until SCRUM-359 creates a case on acceptance.
-    case_id: uuid.UUID | None = None
 
 
 class DeclineRequestBody(BaseModel):
@@ -67,8 +61,8 @@ class LawyerCaseResponse(BaseModel):
     status: str
     summary: dict[str, Any] | None
     notes: str | None
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDateTime
+    updated_at: UTCDateTime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -80,7 +74,7 @@ class LawyerConversationResponse(BaseModel):
     user_id: uuid.UUID
     type: str
     case_id: uuid.UUID | None
-    created_at: datetime
+    created_at: UTCDateTime
 
     model_config = ConfigDict(from_attributes=True)
 

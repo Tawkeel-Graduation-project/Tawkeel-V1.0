@@ -21,7 +21,7 @@ from app.client.schemas import (
 from app.core.timestamps import UTCDateTime
 from app.db.models import LawyerProfile, Request, User, Workflow
 from app.db.session import get_db
-from app.lawyer.schemas import LawyerDecisionResponse, LawyerRequestResponse
+from app.lawyer.schemas import LawyerRequestResponse
 from app.main import app
 
 NAIVE = datetime(2026, 11, 28, 8, 30, 0, 123456)  # how most columns come back
@@ -36,6 +36,7 @@ LAWYER_KEYS = {
     "created_at",
     "intake_id",
     "responded_at",
+    "case_id",
 }
 
 
@@ -84,7 +85,6 @@ def _request(**extra) -> Request:
         SentRequestResponse,
         IntakeRequestResponse,
         LawyerRequestResponse,
-        LawyerDecisionResponse,
     ],
 )
 def test_every_sprint5_request_schema_returns_z_timestamps(schema) -> None:
@@ -118,7 +118,6 @@ def test_intake_response_returns_z_timestamps() -> None:
 def test_lawyer_request_has_only_the_approved_summary_fields() -> None:
     data = LawyerRequestResponse.model_validate(_request()).model_dump(mode="json")
     assert set(data) == LAWYER_KEYS
-    assert set(LawyerDecisionResponse.model_fields) == LAWYER_KEYS | {"case_id"}
 
 
 # --- lawyer_inbox ----------------------------------------------------------------

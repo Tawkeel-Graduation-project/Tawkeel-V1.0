@@ -55,6 +55,7 @@ LAWYER_KEYS = {
     "created_at",
     "intake_id",
     "responded_at",
+    "case_id",
 }
 FORBIDDEN_KEYS = {
     "conversation_id",

@@ -25,9 +25,14 @@ def _request(status: str = "sent") -> Request:
     )
 
 
-def _event(db: Mock) -> AuditEvent:
-    (call,) = [c for c in db.add.call_args_list if isinstance(c.args[0], AuditEvent)]
-    return call.args[0]
+def _event(db: Mock, action: str | None = None) -> AuditEvent:
+    (event,) = [
+        c.args[0]
+        for c in db.add.call_args_list
+        if isinstance(c.args[0], AuditEvent)
+        and (action is None or c.args[0].action == action)
+    ]
+    return event
 
 
 def test_accept_sets_status_responded_at_and_audits() -> None:
@@ -39,8 +44,7 @@ def test_accept_sets_status_responded_at_and_audits() -> None:
     assert req.responded_at is not None
     assert req.responded_at.utcoffset() is not None  # timezone-aware
     assert req.decline_reason is None
-    event = _event(db)
-    assert event.action == AuditAction.REQUEST_ACCEPTED
+    event = _event(db, AuditAction.REQUEST_ACCEPTED)
     assert event.actor_id == actor
     assert event.after == {"status": "accepted"}
     db.commit.assert_not_called()

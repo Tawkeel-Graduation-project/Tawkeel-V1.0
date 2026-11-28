@@ -1,10 +1,11 @@
 """Pydantic schemas for audit trail API responses."""
 
 import uuid
-from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
+
+from app.core.timestamps import UTCDateTime
 
 
 class AuditEventResponse(BaseModel):
@@ -18,7 +19,7 @@ class AuditEventResponse(BaseModel):
     workflow_id: uuid.UUID | None
     before: dict[str, Any] | None
     after: dict[str, Any] | None
-    created_at: datetime
+    created_at: UTCDateTime
 
     model_config = ConfigDict(from_attributes=True)
 

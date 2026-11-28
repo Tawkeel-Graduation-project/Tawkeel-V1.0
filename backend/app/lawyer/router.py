@@ -1,6 +1,7 @@
 """FastAPI router for lawyer endpoints with strict RBAC and ownership isolation."""
 
 import uuid
+from collections.abc import Sequence
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from services.audit.actions import AuditAction
@@ -8,9 +9,14 @@ from services.audit.service import log_event
 from services.requests.inbox import (
     INBOX_DEFAULT_LIMIT,
     INBOX_MAX_LIMIT,
+    case_ids,
     lawyer_inbox,
 )
-from services.requests.service import accept_request, decline_request
+from services.requests.service import (
+    CaseExistsError,
+    accept_request,
+    decline_request,
+)
 from services.requests.states import InvalidRequestTransitionError, RequestStatus
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -21,13 +27,12 @@ from app.auth.ownership import (
     verify_conversation_ownership,
     verify_request_ownership,
 )
-from app.db.models import Case, Conversation, LawyerProfile, User
+from app.db.models import Case, Conversation, LawyerProfile, Request, User
 from app.db.session import get_db
 from app.lawyer.schemas import (
     DeclineRequestBody,
     LawyerCaseResponse,
     LawyerConversationResponse,
-    LawyerDecisionResponse,
     LawyerRequestResponse,
     UpdateCaseNotesRequest,
 )
@@ -63,7 +68,19 @@ def list_lawyer_requests(
     records = lawyer_inbox(
         db, profile.id, status=request_status, limit=limit, offset=offset
     )
-    return [LawyerRequestResponse.model_validate(r) for r in records]
+    return _with_case_ids(db, records)
+
+
+def _with_case_ids(
+    db: Session, records: Sequence[Request]
+) -> list[LawyerRequestResponse]:
+    cases = case_ids(db, [r.id for r in records])
+    return [
+        LawyerRequestResponse.model_validate(r).model_copy(
+            update={"case_id": cases.get(r.id)}
+        )
+        for r in records
+    ]
 
 
 @router.get("/requests/{request_id}", response_model=LawyerRequestResponse)
@@ -77,7 +94,7 @@ def get_lawyer_request(
     403 if it is another lawyer's, 404 if it doesn't exist.
     """
     req = verify_request_ownership(db, request_id, current_user)
-    return LawyerRequestResponse.model_validate(req)
+    return _with_case_ids(db, [req])[0]
 
 
 def _not_sent(exc: InvalidRequestTransitionError) -> HTTPException:
@@ -87,30 +104,39 @@ def _not_sent(exc: InvalidRequestTransitionError) -> HTTPException:
     )
 
 
-@router.post("/requests/{request_id}/accept", response_model=LawyerDecisionResponse)
+@router.post("/requests/{request_id}/accept", response_model=LawyerRequestResponse)
 def accept_lawyer_request(
     request_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_lawyer),
-) -> LawyerDecisionResponse:
-    """Accept a request sent to this lawyer (SCRUM-347). 409 unless it is sent."""
+) -> LawyerRequestResponse:
+    """Accept a request sent to this lawyer and open its case (SCRUM-347/359).
+
+    409 unless it is sent, or if the request already has a case.
+    """
     req = verify_request_ownership(db, request_id, current_user)
     try:
-        accept_request(db, req, actor_id=current_user.id)
+        case = accept_request(db, req, actor_id=current_user.id)
     except InvalidRequestTransitionError as exc:
         raise _not_sent(exc) from exc
+    except CaseExistsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     db.commit()
     db.refresh(req)
-    return LawyerDecisionResponse.model_validate(req)
+    return LawyerRequestResponse.model_validate(req).model_copy(
+        update={"case_id": case.id}
+    )
 
 
-@router.post("/requests/{request_id}/decline", response_model=LawyerDecisionResponse)
+@router.post("/requests/{request_id}/decline", response_model=LawyerRequestResponse)
 def decline_lawyer_request(
     request_id: uuid.UUID,
     payload: DeclineRequestBody | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_lawyer),
-) -> LawyerDecisionResponse:
+) -> LawyerRequestResponse:
     """Decline a request sent to this lawyer (SCRUM-347). 409 unless it is sent.
 
     The optional ``reason`` is shown to the client; the client may then send
@@ -124,7 +150,7 @@ def decline_lawyer_request(
         raise _not_sent(exc) from exc
     db.commit()
     db.refresh(req)
-    return LawyerDecisionResponse.model_validate(req)
+    return LawyerRequestResponse.model_validate(req)
 
 
 @router.get("/cases", response_model=list[LawyerCaseResponse])

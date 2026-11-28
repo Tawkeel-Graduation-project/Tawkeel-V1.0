@@ -2,12 +2,12 @@
 
 import unicodedata
 import uuid
-from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.auth.email import normalize_email
+from app.core.timestamps import UTCDateTime
 
 MAX_PASSWORD_LENGTH = 128
 
@@ -70,6 +70,6 @@ class UserResponse(BaseModel):
     email: str
     full_name: str | None
     role: str
-    created_at: datetime
+    created_at: UTCDateTime
 
     model_config = ConfigDict(from_attributes=True)

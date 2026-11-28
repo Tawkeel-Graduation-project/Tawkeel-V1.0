@@ -12,10 +12,19 @@ from app.core.config import get_settings
 @lru_cache
 def get_engine() -> Engine:
     """Create and cache the SQLAlchemy engine lazily from application settings."""
-    settings = get_settings()
+    return create_app_engine(get_settings().sqlalchemy_database_url)
+
+
+def create_app_engine(url: str) -> Engine:
+    """An engine whose every connection uses the UTC session time zone.
+
+    Naive timestamp columns are filled by ``now()``, which writes the session's
+    local time; pinning UTC keeps them UTC, as the API assumes (SCRUM-359).
+    """
     return create_engine(
-        settings.sqlalchemy_database_url,
+        url,
         pool_pre_ping=True,
+        connect_args={"options": "-c timezone=UTC"},
     )
 
 

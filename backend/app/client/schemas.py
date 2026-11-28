@@ -2,7 +2,6 @@
 
 import uuid
 from collections.abc import Sequence
-from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -83,8 +82,8 @@ class ClientCaseResponse(BaseModel):
     request_id: uuid.UUID
     status: str
     summary: dict[str, Any] | None
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDateTime
+    updated_at: UTCDateTime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -95,7 +94,7 @@ class ClientConversationResponse(BaseModel):
     id: uuid.UUID
     type: str
     case_id: uuid.UUID | None
-    created_at: datetime
+    created_at: UTCDateTime
 
     model_config = ConfigDict(from_attributes=True)
 
